@@ -426,8 +426,8 @@ class CECDaemon:
 
         # Check if we should turn off the TV based on time
         if self._should_turn_off_tv():
-            self.logger.info("Time condition met - turning off TV")
-            time.sleep(1)  # Brief delay to let Chromecast switch complete
+            self.logger.info("Time condition met - turning off TV in 10 seconds")
+            time.sleep(10)  # Delay to let Chromecast switch complete and TV settle
             self.tv.power_off()
         else:
             self.logger.info("Time condition not met - keeping TV on")
