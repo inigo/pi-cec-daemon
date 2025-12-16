@@ -65,6 +65,7 @@ class CECDaemon:
 
         # Track if Switch is currently on (for polling)
         self._switch_is_on = False
+        self._switch_poll_failures = 0
 
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file"""
@@ -152,7 +153,18 @@ class CECDaemon:
 
                 # Poll Switch status if it's currently on
                 if self._switch_is_on:
-                    self.switch.get_power_status()
+                    if self.switch.get_power_status():
+                        # Successfully sent command, reset failure counter
+                        self._switch_poll_failures = 0
+                    else:
+                        # Failed to send command (Switch likely off)
+                        self._switch_poll_failures += 1
+                        if self._switch_poll_failures >= 3:
+                            # After 3 consecutive failures, assume Switch is off
+                            self.logger.info("Switch not responding to polls (3 failures), assuming it's off")
+                            self._switch_is_on = False
+                            self._switch_poll_failures = 0
+                            self._on_switch_turned_off()
 
                 # Wait for next poll (or until stop event)
                 self._stop_event.wait(interval_sec)
@@ -245,6 +257,9 @@ class CECDaemon:
                 # Switch is on if status is ON (not standby/transitioning)
                 new_is_on = (status == PowerStatus.ON)
 
+                # We got a response, so reset failure counter
+                self._switch_poll_failures = 0
+
                 if old_is_on and not new_is_on:
                     # Switch just turned off
                     self.logger.info("Switch turned off (detected via polling)")
@@ -291,6 +306,7 @@ class CECDaemon:
             if not was_active:
                 # Switch just turned on, start polling it
                 self._switch_is_on = True
+                self._switch_poll_failures = 0
                 self._on_switch_turned_on()
 
     def _handle_standby(self, cmd: CECCommand) -> None:

@@ -266,7 +266,7 @@ class Switch(CECDevice):
         super().__init__("Switch", logical_address, delegate)
         self._is_active = False
 
-    def get_power_status(self) -> None:
+    def get_power_status(self) -> bool:
         """
         Request Switch power status.
 
@@ -274,8 +274,11 @@ class Switch(CECDevice):
         Expects response: 41:90:XX where XX is power status
 
         Note: This is async - the response comes via callback.
+
+        Returns:
+            True if command was sent successfully, False otherwise
         """
-        self._transmit(CECOpcode.GIVE_DEVICE_POWER_STATUS)
+        return self._transmit(CECOpcode.GIVE_DEVICE_POWER_STATUS)
 
     def update_active_source(self, is_active: bool) -> None:
         """Update whether this device is the active source"""

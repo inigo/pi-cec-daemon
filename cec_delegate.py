@@ -118,7 +118,8 @@ class CECDelegate:
             if self._lib.Transmit(cmd):
                 return True
             else:
-                self.logger.error(f"Failed to transmit CEC command: {cmd_string}")
+                # Log as debug - failure is expected when device is off/unreachable
+                self.logger.debug(f"Failed to transmit CEC command: {cmd_string}")
                 return False
 
         except Exception as e:
