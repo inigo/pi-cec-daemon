@@ -4,16 +4,12 @@ A Python daemon that monitors HDMI CEC traffic and automatically controls TV and
 
 ## Architecture
 
-- **CEC Delegate Layer** (`cec_delegate.py`): Low-level CEC transmit/receive interface with real and mock implementations
+- **CEC Delegate Layer** (`cec_delegate.py`): Low-level CEC transmit/receive interface using python-cec
 - **Device Classes** (`devices.py`): TV, Soundbar, Switch, and Chromecast abstractions
 - **Business Logic** (`cec_daemon.py`): Main daemon implementing automation rules
 - **Configuration** (`config.yaml`): Device addresses and settings
 
-## Development on Mac
-
-The code includes a mock CEC implementation that allows development on systems without CEC hardware. Mock mode logs all CEC operations without requiring actual hardware.
-
-## Setup on Raspberry Pi
+## Setup
 
 1. Clone the repository:
    ```bash

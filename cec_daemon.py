@@ -15,7 +15,7 @@ from pathlib import Path
 from threading import Thread, Event
 from typing import Optional
 
-from cec_delegate import get_cec_delegate, CECDelegate, CECCommand
+from cec_delegate import CECDelegate, CECCommand
 from devices import TV, Soundbar, Switch, Chromecast, PowerStatus, CECOpcode
 
 
@@ -36,8 +36,7 @@ class CECDaemon:
         self.logger.info("Initializing CEC Daemon")
 
         # Initialize CEC delegate
-        mock_mode = self.config.get('mock_mode', False)
-        self.delegate = get_cec_delegate(mock_mode)
+        self.delegate = CECDelegate()
 
         # Initialize devices
         self.tv = TV(

@@ -45,6 +45,3 @@ logging:
   level: INFO  # DEBUG, INFO, WARNING, ERROR
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   file: "cec_daemon.log"
-
-# Mock mode (set to true to use mock CEC even on Pi - useful for testing)
-mock_mode: false
