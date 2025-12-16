@@ -349,10 +349,19 @@ class CECDaemon:
 
         # Get current volume and set to target
         self._adjusting_volume = True
-        current_volume = self.soundbar.get_volume()
+        self.soundbar.get_volume()
 
-        # Give a moment for volume response
-        time.sleep(0.5)
+        # Wait for volume response (poll for up to 3 seconds)
+        max_wait = 3.0
+        poll_interval = 0.2
+        waited = 0.0
+
+        while waited < max_wait and self.soundbar._last_known_volume is None:
+            time.sleep(poll_interval)
+            waited += poll_interval
+
+        if self.soundbar._last_known_volume is None:
+            self.logger.warning("Soundbar did not respond with volume, setting anyway")
 
         target_volume = self.config['soundbar']['target_volume_cec']
         volume_step = self.config['soundbar']['volume_step']
@@ -368,17 +377,45 @@ class CECDaemon:
         """
         Business logic: When Switch turns off:
         1. Switch to Chromecast as active source
-        2. Turn off TV if it's before 5pm or after 10pm
+        2. Set soundbar volume to 12 (0x18 CEC)
+        3. Turn off TV if it's before 5pm or after 10pm
         """
-        self.logger.info("Switch turned off - switching to Chromecast")
+        self.logger.info("Switch turned off - switching to Chromecast and adjusting volume")
 
         # Make Chromecast the active source
         self.chromecast.make_active_source()
 
+        # Set volume to 12 (0x18 in CEC)
+        self._adjusting_volume = True
+        self.soundbar.get_volume()
+
+        # Wait for volume response (poll for up to 3 seconds)
+        max_wait = 3.0
+        poll_interval = 0.2
+        waited = 0.0
+
+        while waited < max_wait and self.soundbar._last_known_volume is None:
+            time.sleep(poll_interval)
+            waited += poll_interval
+
+        if self.soundbar._last_known_volume is None:
+            self.logger.warning("Soundbar did not respond with volume, setting anyway")
+
+        # Target volume: 12 on display = 0x18 (24 decimal) in CEC
+        target_volume = 0x18
+        volume_step = self.config['soundbar']['volume_step']
+
+        self.soundbar.set_volume(
+            target_cec=target_volume,
+            current_cec=self.soundbar._last_known_volume,
+            step=volume_step
+        )
+        self._adjusting_volume = False
+
         # Check if we should turn off the TV based on time
         if self._should_turn_off_tv():
             self.logger.info("Time condition met - turning off TV")
-            time.sleep(1)  # Brief delay to let Chromecast switch complete
+            time.sleep(1)  # Brief delay to let volume adjustment complete
             self.tv.power_off()
         else:
             self.logger.info("Time condition not met - keeping TV on")
