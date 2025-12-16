@@ -118,8 +118,16 @@ def test_cec():
     except Exception as e:
         print(f"   ✗ Failed to transmit: {e}")
 
-    # Test 9: Callback test
-    print("\n9. Testing callback registration...")
+    # Close first connection before callback test
+    print("\n9. Closing first connection...")
+    try:
+        lib.Close()
+        print("   ✓ Connection closed")
+    except Exception as e:
+        print(f"   ✗ Failed to close: {e}")
+
+    # Test 10: Callback test
+    print("\n10. Testing callback registration...")
     callback_received = []
 
     def test_callback(cmd_string):
@@ -129,14 +137,15 @@ def test_cec():
     try:
         # Create new config with callback
         config2 = cec.libcec_configuration()
-        config2.strDeviceName = "Callback Test"
+        config2.strDeviceName = "CallbackTest"  # Shorter name, no spaces
+        config2.bActivateSource = 0
         config2.deviceTypes.Add(cec.CEC_DEVICE_TYPE_RECORDING_DEVICE)
         config2.clientVersion = cec.LIBCEC_VERSION_CURRENT
         config2.SetCommandCallback(test_callback)
 
         lib2 = cec.ICECAdapter.Create(config2)
         if lib2 and lib2.Open(adapters[0].strComName):
-            print("   ✓ Callback registered")
+            print("   ✓ Callback registered and connection opened")
             print("   Waiting 2 seconds for CEC traffic...")
             time.sleep(2)
 
@@ -152,14 +161,8 @@ def test_cec():
             print("   ✗ Failed to open connection for callback test")
     except Exception as e:
         print(f"   ✗ Callback test failed: {e}")
-
-    # Cleanup
-    print("\n10. Testing cleanup...")
-    try:
-        lib.Close()
-        print("   ✓ Connection closed")
-    except Exception as e:
-        print(f"   ✗ Failed to close: {e}")
+        import traceback
+        traceback.print_exc()
 
     print("\n" + "=" * 50)
     print("All tests completed successfully!")
