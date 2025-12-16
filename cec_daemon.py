@@ -69,6 +69,9 @@ class CECDaemon:
         self._switch_is_on = False
         self._switch_poll_failures = 0
 
+        # Initialization flag - prevents business logic triggers during startup
+        self._initializing = True
+
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file"""
         try:
@@ -110,8 +113,20 @@ class CECDaemon:
         # Register callback for CEC messages
         self.delegate.add_callback(self._on_cec_message)
 
+        # Query initial device states
+        self.logger.info("Querying initial device states...")
+        self.tv.get_power_status()
+        self.switch.get_power_status()
+
         # Start polling thread for TV status
         self._start_polling()
+
+        # Wait for initial state responses (2 seconds should be sufficient)
+        time.sleep(2)
+
+        # End initialization phase - enable business logic
+        self._initializing = False
+        self.logger.info("Initialization complete")
 
         self.logger.info("CEC Daemon started successfully")
 
@@ -246,27 +261,36 @@ class CECDaemon:
                 self.tv.update_power_status(status)
                 new_is_on = self.tv.is_on()
 
-                # Business logic: TV state changed
-                if old_is_on != new_is_on and new_is_on is not None:
-                    if new_is_on:
-                        self._on_tv_turned_on()
-                    else:
-                        self._on_tv_turned_off()
+                # Business logic: TV state changed (skip during initialization)
+                if not self._initializing:
+                    if old_is_on != new_is_on and new_is_on is not None:
+                        if new_is_on:
+                            self._on_tv_turned_on()
+                        else:
+                            self._on_tv_turned_off()
 
             # Handle Switch power status
             elif cmd.initiator == self.switch.logical_address:
-                old_is_on = self._switch_is_on
-                # Switch is on if status is ON (not standby/transitioning)
-                new_is_on = (status == PowerStatus.ON)
-
                 # We got a response, so reset failure counter
                 self._switch_poll_failures = 0
 
-                if old_is_on and not new_is_on:
-                    # Switch just turned off
-                    self.logger.info("Switch turned off (detected via polling)")
-                    self._switch_is_on = False
-                    self._on_switch_turned_off()
+                # Switch is on if status is ON (not standby/transitioning)
+                new_is_on = (status == PowerStatus.ON)
+
+                if self._initializing:
+                    # During initialization, just set the state
+                    if new_is_on:
+                        self.logger.info("Switch detected as ON during initialization")
+                        self._switch_is_on = True
+                else:
+                    # Normal operation: detect state changes
+                    old_is_on = self._switch_is_on
+
+                    if old_is_on and not new_is_on:
+                        # Switch just turned off
+                        self.logger.info("Switch turned off (detected via polling)")
+                        self._switch_is_on = False
+                        self._on_switch_turned_off()
 
         except ValueError:
             self.logger.warning(f"Unknown power status value: {cmd.parameters[0]:02X}")
