@@ -44,7 +44,7 @@ class CECDelegate:
 
             # Create configuration
             self._config = cec.libcec_configuration()
-            self._config.strDeviceName = "Pi CEC Daemon"
+            self._config.strDeviceName = "PiCEC"
             self._config.bActivateSource = 0
             self._config.deviceTypes.Add(cec.CEC_DEVICE_TYPE_RECORDING_DEVICE)
             self._config.clientVersion = cec.LIBCEC_VERSION_CURRENT
