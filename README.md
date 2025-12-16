@@ -94,9 +94,26 @@ If this command succeeds without errors, the bindings are installed correctly.
    journalctl -u pi-cec-daemon -f
    ```
 
+## Updating Code
+
+After pulling new changes from git:
+
+```bash
+cd pi-cec-daemon
+git pull
+sudo ./update-install.sh
+```
+
+This will:
+- Stop the service
+- Create a timestamped backup
+- Copy updated Python files
+- Preserve your config.yaml (saves new config as config.yaml.new if changes detected)
+- Restart the service
+
 ## Configuration
 
-Edit `config.yaml` to update device logical addresses if devices are moved to different HDMI ports.
+Edit `/opt/pi-cec-daemon/config.yaml` to update device logical addresses if devices are moved to different HDMI ports.
 
 After editing, restart the service:
 ```bash
