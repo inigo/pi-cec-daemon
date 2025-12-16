@@ -63,6 +63,9 @@ class CECDaemon:
         # Track if we're currently adjusting volume to avoid re-triggering
         self._adjusting_volume = False
 
+        # Track if Switch is currently on (for polling)
+        self._switch_is_on = False
+
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file"""
         try:
@@ -137,15 +140,19 @@ class CECDaemon:
         self.stop()
 
     def _start_polling(self) -> None:
-        """Start the TV status polling thread"""
+        """Start the TV and Switch status polling thread"""
         interval_ms = self.config.get('tv_polling', {}).get('interval_ms', 1000)
         interval_sec = interval_ms / 1000.0
 
         def polling_loop():
-            self.logger.info(f"TV polling started (interval: {interval_ms}ms)")
+            self.logger.info(f"Polling started (interval: {interval_ms}ms)")
             while not self._stop_event.is_set():
                 # Poll TV status
                 self.tv.get_power_status()
+
+                # Poll Switch status if it's currently on
+                if self._switch_is_on:
+                    self.switch.get_power_status()
 
                 # Wait for next poll (or until stop event)
                 self._stop_event.wait(interval_sec)
@@ -205,14 +212,11 @@ class CECDaemon:
 
     def _handle_power_status_report(self, cmd: CECCommand) -> None:
         """
-        Handle TV power status reports.
+        Handle power status reports from TV and Switch.
 
-        Expected: 01:90:XX where XX is power status
+        Expected: X1:90:XX where XX is power status
         """
         if cmd.opcode != CECOpcode.REPORT_POWER_STATUS:
-            return
-
-        if cmd.initiator != self.tv.logical_address:
             return
 
         if not cmd.parameters or len(cmd.parameters) < 1:
@@ -221,16 +225,31 @@ class CECDaemon:
 
         try:
             status = PowerStatus(cmd.parameters[0])
-            old_is_on = self.tv.is_on()
-            self.tv.update_power_status(status)
-            new_is_on = self.tv.is_on()
 
-            # Business logic: TV state changed
-            if old_is_on != new_is_on and new_is_on is not None:
-                if new_is_on:
-                    self._on_tv_turned_on()
-                else:
-                    self._on_tv_turned_off()
+            # Handle TV power status
+            if cmd.initiator == self.tv.logical_address:
+                old_is_on = self.tv.is_on()
+                self.tv.update_power_status(status)
+                new_is_on = self.tv.is_on()
+
+                # Business logic: TV state changed
+                if old_is_on != new_is_on and new_is_on is not None:
+                    if new_is_on:
+                        self._on_tv_turned_on()
+                    else:
+                        self._on_tv_turned_off()
+
+            # Handle Switch power status
+            elif cmd.initiator == self.switch.logical_address:
+                old_is_on = self._switch_is_on
+                # Switch is on if status is ON (not standby/transitioning)
+                new_is_on = (status == PowerStatus.ON)
+
+                if old_is_on and not new_is_on:
+                    # Switch just turned off
+                    self.logger.info("Switch turned off (detected via polling)")
+                    self._switch_is_on = False
+                    self._on_switch_turned_off()
 
         except ValueError:
             self.logger.warning(f"Unknown power status value: {cmd.parameters[0]:02X}")
@@ -270,6 +289,8 @@ class CECDaemon:
             self.switch.update_active_source(True)
 
             if not was_active:
+                # Switch just turned on, start polling it
+                self._switch_is_on = True
                 self._on_switch_turned_on()
 
     def _handle_standby(self, cmd: CECCommand) -> None:
@@ -281,12 +302,14 @@ class CECDaemon:
         if cmd.opcode != CECOpcode.STANDBY:
             return
 
-        # Check if Switch was active and is now going to standby
+        # Check if Switch sent standby (backup detection method, polling is primary)
         if cmd.initiator == self.switch.logical_address:
-            was_active = self.switch.is_active_source()
+            was_on = self._switch_is_on
+            self._switch_is_on = False
             self.switch.update_active_source(False)
 
-            if was_active:
+            if was_on:
+                self.logger.info("Switch turned off (detected via standby message)")
                 self._on_switch_turned_off()
 
     # ===== Business Logic Rules =====
