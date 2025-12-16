@@ -7,7 +7,7 @@ Type=simple
 User=pi
 Group=pi
 WorkingDirectory=/opt/pi-cec-daemon
-ExecStart=/opt/pi-cec-daemon/venv/bin/python3 /opt/pi-cec-daemon/cec_daemon.py /opt/pi-cec-daemon/config.yaml
+ExecStart=/usr/bin/python3 /opt/pi-cec-daemon/cec_daemon.py /opt/pi-cec-daemon/config.yaml
 Restart=always
 RestartSec=10
 

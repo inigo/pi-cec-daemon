@@ -31,7 +31,7 @@ fi
 
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y python3 python3-pip python3-venv libcec-dev cec-utils
+apt-get install -y python3 python3-pip python3-venv python3-cec python3-yaml cec-utils
 
 echo ""
 echo "Step 2: Creating installation directory..."
@@ -41,29 +41,18 @@ echo ""
 echo "Step 3: Copying files to $INSTALL_DIR..."
 cp -r ./*.py "$INSTALL_DIR/"
 cp config.yaml "$INSTALL_DIR/"
-cp requirements.txt "$INSTALL_DIR/"
 
 echo ""
-echo "Step 4: Setting up Python virtual environment..."
-cd "$INSTALL_DIR"
-python3 -m venv venv
-
-echo ""
-echo "Step 5: Installing Python dependencies..."
-venv/bin/pip install --upgrade pip
-venv/bin/pip install -r requirements.txt
-
-echo ""
-echo "Step 6: Setting permissions..."
+echo "Step 4: Setting permissions..."
 chown -R "$USER:$USER" "$INSTALL_DIR"
 
 echo ""
-echo "Step 7: Installing systemd service..."
+echo "Step 5: Installing systemd service..."
 cp "$(dirname "$0")/pi-cec-daemon.service" /etc/systemd/system/
 systemctl daemon-reload
 
 echo ""
-echo "Step 8: Enabling and starting service..."
+echo "Step 6: Enabling and starting service..."
 systemctl enable "$SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
 

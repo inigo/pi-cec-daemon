@@ -49,7 +49,7 @@ class CECDelegate:
 
             return True
         except ImportError:
-            self.logger.error("python-cec library not found. Install with: pip install cec")
+            self.logger.error("python3-cec library not found. Install with: sudo apt install python3-cec")
             return False
         except Exception as e:
             self.logger.error(f"Failed to initialize CEC: {e}")
