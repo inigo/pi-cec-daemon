@@ -245,9 +245,9 @@ class Soundbar(CECDevice):
             self.logger.info(f"Volume already at target: {target_cec} (0x{target_cec:02X})")
             return
 
-        # Calculate how many steps we need
+        # Calculate how many steps we need (use ceiling division to avoid being off-by-one)
         diff = target_cec - current_cec
-        steps = abs(diff) // step
+        steps = (abs(diff) + step - 1) // step  # Ceiling division
 
         if diff > 0:
             self.logger.info(f"Increasing volume from {current_cec} to {target_cec} ({steps} steps)")
