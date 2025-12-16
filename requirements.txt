@@ -1,0 +1,5 @@
+# CEC library for HDMI-CEC communication
+cec==0.2.7
+
+# Configuration file parsing
+PyYAML==6.0.1

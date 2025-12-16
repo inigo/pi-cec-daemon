@@ -1,0 +1,50 @@
+# CEC Daemon Configuration
+
+# Device logical addresses (update these if devices move to different HDMI ports)
+devices:
+  tv:
+    logical_address: 0
+    description: "TV itself"
+
+  switch:
+    logical_address: 4
+    description: "Nintendo Switch on HDMI 1"
+
+  soundbar:
+    logical_address: 5
+    description: "Soundbar on HDMI 2"
+
+  chromecast:
+    logical_address: 8
+    description: "Google Chromecast on HDMI 3"
+
+  raspberry_pi:
+    logical_address: 1
+    description: "Raspberry Pi on HDMI 4 (this device)"
+
+# Soundbar volume settings
+soundbar:
+  target_volume_display: 8  # What shows on soundbar display
+  target_volume_cec: 0x10   # Corresponding CEC hex value
+  volume_step: 2            # CEC value changes by 2 per step
+
+# TV polling settings
+tv_polling:
+  interval_ms: 1000  # Check TV status every 1000ms
+
+# Business logic settings
+rules:
+  # Time range for TV auto-off when Switch turns off
+  # TV turns off if current time is NOT between these hours (i.e., before 5pm or after 10pm)
+  tv_auto_off_outside_hours:
+    start: 17  # 5pm (17:00)
+    end: 22    # 10pm (22:00)
+
+# Logging
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "cec_daemon.log"
+
+# Mock mode (set to true to use mock CEC even on Pi - useful for testing)
+mock_mode: false
