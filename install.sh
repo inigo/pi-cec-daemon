@@ -29,9 +29,30 @@ if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
     fi
 fi
 
+echo ""
+echo "Checking for libcec Python bindings..."
+if ! python3 -c "import cec" 2>/dev/null; then
+    echo ""
+    echo "ERROR: libcec Python bindings not found!"
+    echo ""
+    echo "You must install libcec Python bindings before running this script."
+    echo "Please follow the instructions in README.md under 'Installing libcec Python Bindings'"
+    echo ""
+    echo "Quick summary:"
+    echo "  1. Install build dependencies"
+    echo "  2. Clone and build libcec from source with -DBUILD_PYTHON=1"
+    echo "  3. Run 'python3 -c \"import cec\"' to verify"
+    echo ""
+    echo "See README.md for full step-by-step instructions."
+    echo ""
+    exit 1
+fi
+echo "✓ libcec Python bindings found"
+
+echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y python3 python3-pip python3-venv python3-cec python3-yaml cec-utils
+apt-get install -y python3-yaml cec-utils
 
 echo ""
 echo "Step 2: Creating installation directory..."
