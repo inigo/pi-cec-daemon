@@ -35,6 +35,7 @@ class CECOpcode(IntEnum):
 
 class UserControlCode(IntEnum):
     """CEC user control codes"""
+    POWER = 0x40
     VOLUME_UP = 0x41
     VOLUME_DOWN = 0x42
 
@@ -127,20 +128,76 @@ class Soundbar(CECDevice):
     def __init__(self, logical_address: int, delegate: CECDelegate):
         super().__init__("Soundbar", logical_address, delegate)
         self._last_known_volume: Optional[int] = None
+        self._last_known_status: Optional[PowerStatus] = None
+
+    def get_power_status(self) -> Optional[PowerStatus]:
+        """
+        Request soundbar power status.
+
+        Sends: tx 15:8F
+        Expects response: 51:90:XX where XX is power status
+
+        Note: This is async - the response comes via callback.
+        Use _last_known_status to get the cached value.
+
+        Returns:
+            The last known power status, or None if unknown
+        """
+        self._transmit(CECOpcode.GIVE_DEVICE_POWER_STATUS)
+        return self._last_known_status
+
+    def update_power_status(self, status: PowerStatus) -> None:
+        """Update the cached power status (called by business logic on response)"""
+        old_status = self._last_known_status
+        self._last_known_status = status
+
+        if old_status != status:
+            self.logger.info(f"Power status changed: {old_status} -> {status.name}")
+
+    def is_on(self) -> Optional[bool]:
+        """
+        Check if soundbar is on based on last known status.
+
+        Returns:
+            True if ON, False if STANDBY/OFF, None if unknown
+        """
+        if self._last_known_status is None:
+            return None
+        return self._last_known_status == PowerStatus.ON
 
     def power_on(self) -> bool:
         """
-        Turn on the soundbar.
+        Turn on the soundbar by sending power status query.
 
-        Sends: tx 15:04 (image view on)
+        Sends: tx 15:8F (request power status)
+        Business logic will handle response and send power toggle if needed.
 
         Returns:
             True if command was sent successfully
         """
-        result = self._transmit(CECOpcode.IMAGE_VIEW_ON)
+        result = self._transmit(CECOpcode.GIVE_DEVICE_POWER_STATUS)
         if result:
-            self.logger.info("Sent power on command")
+            self.logger.info("Requested power status for power on")
         return result
+
+    def send_power_toggle(self) -> bool:
+        """
+        Send power button press/release to toggle soundbar power.
+
+        Sends: tx 15:44:40 (power pressed) then tx 15:45 (release)
+
+        Returns:
+            True if commands were sent successfully
+        """
+        result1 = self._transmit(
+            CECOpcode.USER_CONTROL_PRESSED,
+            bytes([UserControlCode.POWER])
+        )
+        result2 = self._transmit(CECOpcode.USER_CONTROL_RELEASE)
+
+        if result1 and result2:
+            self.logger.info("Sent power toggle command")
+        return result1 and result2
 
     def power_off(self) -> bool:
         """

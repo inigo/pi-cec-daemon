@@ -65,6 +65,9 @@ class CECDaemon:
         self._pending_volume_switch_off = None  # Timestamp or None
         self._volume_request_timeout = 60.0  # seconds
 
+        # Track pending soundbar power on request
+        self._pending_soundbar_power_on = False
+
         # Track if Switch is currently on (for polling)
         self._switch_is_on = False
         self._switch_poll_failures = 0
@@ -292,6 +295,22 @@ class CECDaemon:
                         self._switch_is_on = False
                         self._on_switch_turned_off()
 
+            # Handle Soundbar power status
+            elif cmd.initiator == self.soundbar.logical_address:
+                self.soundbar.update_power_status(status)
+
+                # Check if we have a pending power on request
+                if self._pending_soundbar_power_on:
+                    self._pending_soundbar_power_on = False
+
+                    if status == PowerStatus.STANDBY:
+                        # Soundbar is off, send power toggle
+                        self.logger.info("Soundbar is off, sending power toggle")
+                        self.soundbar.send_power_toggle()
+                    else:
+                        # Soundbar already on
+                        self.logger.info(f"Soundbar already on (status: {status.name}), no action needed")
+
         except ValueError:
             self.logger.warning(f"Unknown power status value: {cmd.parameters[0]:02X}")
 
@@ -390,6 +409,7 @@ class CECDaemon:
     def _on_tv_turned_on(self) -> None:
         """Business logic: When TV turns on, turn on soundbar"""
         self.logger.info("TV turned on - turning on soundbar")
+        self._pending_soundbar_power_on = True
         self.soundbar.power_on()
 
     def _on_tv_turned_off(self) -> None:
@@ -402,6 +422,7 @@ class CECDaemon:
         self.logger.info("Switch turned on - turning on soundbar and requesting volume")
 
         # Turn on soundbar
+        self._pending_soundbar_power_on = True
         self.soundbar.power_on()
 
         # Request volume - will be adjusted asynchronously when response arrives
