@@ -110,15 +110,16 @@ class TV(CECDevice):
         """
         Turn off the TV.
 
-        Sends: tx 1f:36 (broadcast standby)
+        Sends: tx 10:36 (standby to TV)
+
+        Note: This currently doesn't work - TV doesn't respond to direct standby commands
 
         Returns:
             True if command was sent successfully
         """
-        # Broadcast to all devices
-        result = self.delegate.transmit(self.BROADCAST_ADDRESS, CECOpcode.STANDBY)
+        result = self._transmit(CECOpcode.STANDBY)
         if result:
-            self.logger.info("Sent power off command")
+            self.logger.info("Sent power off command (this doesn't work)")
         return result
 
 
