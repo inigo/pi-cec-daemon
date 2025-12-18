@@ -335,35 +335,35 @@ class CECDaemon:
         self.soundbar.update_volume(volume_cec)
 
         # Check if we have pending volume adjustments
-        if self._pending_volume_switch_on is not None:
-            # Check if request hasn't timed out
-            if time.time() - self._pending_volume_switch_on < self._volume_request_timeout:
-                target_volume = self.config['soundbar']['target_volume_cec']
-                volume_step = self.config['soundbar']['volume_step']
-                self.logger.info(f"Adjusting volume to {target_volume} (Switch on)")
-                self.soundbar.set_volume(
-                    target_cec=target_volume,
-                    current_cec=volume_cec,
-                    step=volume_step
-                )
-            else:
-                self.logger.warning("Volume request timed out (Switch on)")
-            self._pending_volume_switch_on = None
-
-        elif self._pending_volume_switch_off is not None:
-            # Check if request hasn't timed out
-            if time.time() - self._pending_volume_switch_off < self._volume_request_timeout:
-                target_volume = 0x18  # 12 on display = 0x18 (24 decimal) in CEC
-                volume_step = self.config['soundbar']['volume_step']
-                self.logger.info(f"Adjusting volume to {target_volume} (Switch off)")
-                self.soundbar.set_volume(
-                    target_cec=target_volume,
-                    current_cec=volume_cec,
-                    step=volume_step
-                )
-            else:
-                self.logger.warning("Volume request timed out (Switch off)")
-            self._pending_volume_switch_off = None
+        # if self._pending_volume_switch_on is not None:
+        #     # Check if request hasn't timed out
+        #     if time.time() - self._pending_volume_switch_on < self._volume_request_timeout:
+        #         target_volume = self.config['soundbar']['target_volume_cec']
+        #         volume_step = self.config['soundbar']['volume_step']
+        #         self.logger.info(f"Adjusting volume to {target_volume} (Switch on)")
+        #         self.soundbar.set_volume(
+        #             target_cec=target_volume,
+        #             current_cec=volume_cec,
+        #             step=volume_step
+        #         )
+        #     else:
+        #         self.logger.warning("Volume request timed out (Switch on)")
+        #     self._pending_volume_switch_on = None
+        #
+        # elif self._pending_volume_switch_off is not None:
+        #     # Check if request hasn't timed out
+        #     if time.time() - self._pending_volume_switch_off < self._volume_request_timeout:
+        #         target_volume = 0x18  # 12 on display = 0x18 (24 decimal) in CEC
+        #         volume_step = self.config['soundbar']['volume_step']
+        #         self.logger.info(f"Adjusting volume to {target_volume} (Switch off)")
+        #         self.soundbar.set_volume(
+        #             target_cec=target_volume,
+        #             current_cec=volume_cec,
+        #             step=volume_step
+        #         )
+        #     else:
+        #         self.logger.warning("Volume request timed out (Switch off)")
+        #     self._pending_volume_switch_off = None
 
     def _handle_active_source(self, cmd: CECCommand) -> None:
         """
@@ -419,15 +419,15 @@ class CECDaemon:
 
     def _on_switch_turned_on(self) -> None:
         """Business logic: When Switch turns on, turn on soundbar and set volume to 8"""
-        self.logger.info("Switch turned on - turning on soundbar and requesting volume")
+        self.logger.info("Switch turned on - turning on soundbar")
 
         # Turn on soundbar
         self._pending_soundbar_power_on = True
         self.soundbar.power_on()
 
         # Request volume - will be adjusted asynchronously when response arrives
-        self._pending_volume_switch_on = time.time()
-        self.soundbar.get_volume()
+        # self._pending_volume_switch_on = time.time()
+        # self.soundbar.get_volume()
 
     def _on_switch_turned_off(self) -> None:
         """
@@ -436,14 +436,14 @@ class CECDaemon:
         2. Set soundbar volume to 12 (0x18 CEC)
         3. Turn off TV if it's before 5pm or after 10pm
         """
-        self.logger.info("Switch turned off - switching to Chromecast and requesting volume")
+        self.logger.info("Switch turned off - switching to Chromecast")
 
         # Make Chromecast the active source
         self.chromecast.make_active_source()
 
         # Request volume - will be adjusted asynchronously when response arrives
-        self._pending_volume_switch_off = time.time()
-        self.soundbar.get_volume()
+        # self._pending_volume_switch_off = time.time()
+        # self.soundbar.get_volume()
 
         # Check if we should turn off the TV based on time
         if self._should_turn_off_tv():
