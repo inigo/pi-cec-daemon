@@ -71,6 +71,7 @@ class CECDaemon:
         # Track if Switch is currently on (for polling)
         self._switch_is_on = False
         self._switch_poll_failures = 0
+        self._last_switch_status_check = 0.0  # Timestamp of last periodic check
 
         # Initialization flag - prevents business logic triggers during startup
         self._initializing = True
@@ -185,6 +186,13 @@ class CECDaemon:
                             self._switch_is_on = False
                             self._switch_poll_failures = 0
                             self._on_switch_turned_off()
+                else:
+                    # Switch is believed to be off - periodically check every minute
+                    current_time = time.time()
+                    if current_time - self._last_switch_status_check >= 60:  # 1 minute
+                        self.logger.debug("Periodic Switch status check (1 minute interval)")
+                        self.switch.get_power_status()
+                        self._last_switch_status_check = current_time
 
                 # Wait for next poll (or until stop event)
                 self._stop_event.wait(interval_sec)
@@ -289,7 +297,13 @@ class CECDaemon:
                     # Normal operation: detect state changes
                     old_is_on = self._switch_is_on
 
-                    if old_is_on and not new_is_on:
+                    if not old_is_on and new_is_on:
+                        # Switch just turned on (detected via periodic check)
+                        self.logger.info("Switch turned on (detected via periodic status check)")
+                        self._switch_is_on = True
+                        self._switch_poll_failures = 0
+                        self._on_switch_turned_on()
+                    elif old_is_on and not new_is_on:
                         # Switch just turned off
                         self.logger.info("Switch turned off (detected via polling)")
                         self._switch_is_on = False
