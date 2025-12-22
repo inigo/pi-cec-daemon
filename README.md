@@ -129,3 +129,47 @@ sudo python3 cec_daemon.py
 ```
 
 Note: May require sudo for CEC hardware access.
+
+# Specification
+
+## DEVICE ADDRESSES:
+
+* TV: 0
+* Pi: 1
+* Switch: 4
+* Soundbar: 5
+* Chromecast: 8
+
+## BUSINESS LOGIC:
+
+* When the TV is turned on, turn on the soundbar
+    * We detect TV on via polling: tx 10:8F (GIVE_DEVICE_POWER_STATUS)
+    * TV responds with 01:90:00 (REPORT_POWER_STATUS with status ON)
+    * To turn on soundbar: tx 15:8F to check status
+    * Soundbar responds with 51:90:XX
+    * If status is STANDBY (0x01), send tx 15:44:40 (USER_CONTROL_PRESSED with POWER), then tx 15:45 (USER_CONTROL_RELEASE)
+
+* When the TV is turned off, turn off the soundbar
+    * We detect TV off via polling: tx 10:8F
+    * TV responds with 01:90:01 (REPORT_POWER_STATUS with status STANDBY)
+    * To turn off soundbar: tx 15:36 (STANDBY)
+
+* When the Switch is turned on, turn on the soundbar
+    * Switch broadcasts 4F:82:10:00 (ACTIVE_SOURCE) when it becomes active
+    * To turn on soundbar: use same sequence as TV turn on (check status, toggle if needed)
+
+* When the Switch is turned off, switch to Chromecast
+    * We detect Switch off via polling failure: tx 14:8F fails 3 consecutive times
+    * Switch to Chromecast: tx 18:82:20:00 (ACTIVE_SOURCE with Chromecast physical address)
+
+## POLLING BEHAVIOR:
+
+* TV: polled every 1000ms with tx 10:8F
+* Switch (when believed ON): polled every 1000ms with tx 14:8F
+* Switch (when believed OFF): polled every 60s with tx 14:8F to detect if it turned on
+
+## INITIALIZATION:
+
+* On startup, query TV and Switch status with tx 10:8F and tx 14:8F
+* Wait 2 seconds for responses before enabling business logic
+* If Switch responds as ON, start polling it without triggering power-on logic
