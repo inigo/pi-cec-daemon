@@ -15,19 +15,20 @@ from typing import Optional
 
 import yaml
 
-from cec_comms import RealCECComms
-from cec_delegate import CECEventBus, CECCommand
+from cec_comms import CECComms, RealCECComms, CECCommand
+from cec_delegate import CECEventBus
 from devices import TV, Soundbar, Switch, Chromecast, PowerStatus, CECOpcode
 
 
 class CECDaemon:
     """Main daemon that orchestrates CEC device automation"""
 
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, comms: CECComms, config_path: str = "config.yaml"):
         """
         Initialize the CEC daemon.
 
         Args:
+            comms: CECComms implementation to use for communication
             config_path: Path to configuration file
         """
         self.config = self._load_config(config_path)
@@ -36,8 +37,7 @@ class CECDaemon:
         self.logger = logging.getLogger('CECDaemon')
         self.logger.info("Initializing CEC Daemon")
 
-        # Initialize CEC event bus with real CEC communication
-        comms = RealCECComms()
+        # Initialize CEC event bus
         self.delegate = CECEventBus(comms)
 
         # Initialize devices
@@ -503,8 +503,11 @@ def main():
     # Handle command line arguments
     config_path = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
 
+    # Create CEC communication layer
+    comms = RealCECComms()
+
     # Create daemon
-    daemon = CECDaemon(config_path)
+    daemon = CECDaemon(comms, config_path)
 
     # Setup signal handlers for graceful shutdown
     def signal_handler(signum, frame):

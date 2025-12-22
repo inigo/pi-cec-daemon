@@ -1,7 +1,71 @@
 import logging
 from typing import Callable
 from abc import ABC, abstractmethod
-from cec_delegate import CECCommand
+
+
+class CECCommand:
+    """Represents a CEC command (received or to be transmitted)"""
+    def __init__(self, command_string: str):
+        """
+        Create a CECCommand from a received command string.
+
+        Args:
+            command_string: Command string in format "XX:YY:ZZ..." where XX is initiator+destination
+        """
+        # Store the original command string
+        self.command_string = command_string.strip()
+
+        # Parse the command string (format: "XX:YY:ZZ..." where XX is initiator+destination)
+        parts = self.command_string.split(':')
+        if len(parts) < 2:
+            raise ValueError(f"Invalid CEC command format: {command_string}")
+
+        # Parse first byte: high nibble = initiator, low nibble = destination
+        first_byte = int(parts[0], 16)
+        self.initiator = (first_byte >> 4) & 0xF
+        self.destination = first_byte & 0xF
+
+        # Parse opcode (second byte)
+        self.opcode = int(parts[1], 16)
+
+        # Parse parameters (remaining bytes)
+        self.parameters = bytes([int(p, 16) for p in parts[2:]]) if len(parts) > 2 else b''
+
+    @classmethod
+    def build(cls, destination: int, opcode: int, parameters: bytes = b'') -> 'CECCommand':
+        """
+        Create a CECCommand for transmission.
+
+        Args:
+            destination: CEC logical address of destination device (0-15)
+            opcode: CEC opcode
+            parameters: Optional parameter bytes
+
+        Returns:
+            CECCommand instance ready for transmission
+        """
+        # Source is always 1 (recording device)
+        source = 1
+
+        # Build command string
+        first_byte = (source << 4) | destination
+        cmd_parts = [f"{first_byte:02X}", f"{opcode:02X}"]
+        if parameters:
+            cmd_parts.extend([f"{b:02X}" for b in parameters])
+        command_string = ":".join(cmd_parts)
+
+        # Create instance with all fields populated
+        instance = cls.__new__(cls)
+        instance.initiator = source
+        instance.destination = destination
+        instance.opcode = opcode
+        instance.parameters = parameters
+        instance.command_string = command_string
+        return instance
+
+    def __str__(self):
+        """Return the command string"""
+        return self.command_string
 
 
 class CECComms(ABC):
