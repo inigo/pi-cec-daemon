@@ -5,10 +5,10 @@ Each device class encapsulates the CEC commands specific to that device type.
 """
 
 import logging
-from typing import Optional
 from enum import IntEnum
+from typing import Optional
 
-from cec_delegate import CECDelegate, CECCommand
+from cec_delegate import CECEventBus
 
 
 class PowerStatus(IntEnum):
@@ -43,14 +43,14 @@ class UserControlCode(IntEnum):
 class CECDevice:
     """Base class for CEC devices"""
 
-    def __init__(self, name: str, logical_address: int, delegate: CECDelegate):
+    def __init__(self, name: str, logical_address: int, delegate: CECEventBus):
         """
         Initialize a CEC device.
 
         Args:
             name: Human-readable device name (for logging)
             logical_address: CEC logical address (0-15)
-            delegate: CEC delegate for communication
+            delegate: CEC event bus for communication
         """
         self.name = name
         self.logical_address = logical_address
@@ -67,7 +67,7 @@ class TV(CECDevice):
 
     BROADCAST_ADDRESS = 0x0F
 
-    def __init__(self, logical_address: int, delegate: CECDelegate):
+    def __init__(self, logical_address: int, delegate: CECEventBus):
         super().__init__("TV", logical_address, delegate)
         self._last_known_status: Optional[PowerStatus] = None
 
@@ -126,7 +126,7 @@ class TV(CECDevice):
 class Soundbar(CECDevice):
     """Soundbar device"""
 
-    def __init__(self, logical_address: int, delegate: CECDelegate):
+    def __init__(self, logical_address: int, delegate: CECEventBus):
         super().__init__("Soundbar", logical_address, delegate)
         self._last_known_volume: Optional[int] = None
         self._last_known_status: Optional[PowerStatus] = None
@@ -320,7 +320,7 @@ class Soundbar(CECDevice):
 class Switch(CECDevice):
     """Nintendo Switch device"""
 
-    def __init__(self, logical_address: int, delegate: CECDelegate):
+    def __init__(self, logical_address: int, delegate: CECEventBus):
         super().__init__("Switch", logical_address, delegate)
         self._is_active = False
 
@@ -353,7 +353,7 @@ class Switch(CECDevice):
 class Chromecast(CECDevice):
     """Google Chromecast device"""
 
-    def __init__(self, logical_address: int, delegate: CECDelegate):
+    def __init__(self, logical_address: int, delegate: CECEventBus):
         super().__init__("Chromecast", logical_address, delegate)
 
     def make_active_source(self) -> bool:

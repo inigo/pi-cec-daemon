@@ -1,5 +1,5 @@
 """
-CEC Delegate Layer - Low-level CEC transmit/receive interface
+CEC Event Bus - Low-level CEC transmit/receive interface
 
 Provides an abstraction over libcec for HDMI CEC communication.
 """
@@ -7,15 +7,23 @@ Provides an abstraction over libcec for HDMI CEC communication.
 import logging
 from typing import Callable
 
+from cec_comms import CECComms
+
 
 class CECCommand:
-    """Represents a received CEC command"""
+    """Represents a CEC command (received or to be transmitted)"""
     def __init__(self, command_string: str):
+        """
+        Create a CECCommand from a received command string.
+
+        Args:
+            command_string: Command string in format "XX:YY:ZZ..." where XX is initiator+destination
+        """
         # Store the original command string
-        self._command_string = command_string.strip()
+        self.command_string = command_string.strip()
 
         # Parse the command string (format: "XX:YY:ZZ..." where XX is initiator+destination)
-        parts = self._command_string.split(':')
+        parts = self.command_string.split(':')
         if len(parts) < 2:
             raise ValueError(f"Invalid CEC command format: {command_string}")
 
@@ -30,117 +38,67 @@ class CECCommand:
         # Parse parameters (remaining bytes)
         self.parameters = bytes([int(p, 16) for p in parts[2:]]) if len(parts) > 2 else b''
 
+    @classmethod
+    def build(cls, destination: int, opcode: int, parameters: bytes = b'') -> 'CECCommand':
+        """
+        Create a CECCommand for transmission.
+
+        Args:
+            destination: CEC logical address of destination device (0-15)
+            opcode: CEC opcode
+            parameters: Optional parameter bytes
+
+        Returns:
+            CECCommand instance ready for transmission
+        """
+        # Source is always 1 (recording device)
+        source = 1
+
+        # Build command string
+        first_byte = (source << 4) | destination
+        cmd_parts = [f"{first_byte:02X}", f"{opcode:02X}"]
+        if parameters:
+            cmd_parts.extend([f"{b:02X}" for b in parameters])
+        command_string = ":".join(cmd_parts)
+
+        # Create instance with all fields populated
+        instance = cls.__new__(cls)
+        instance.initiator = source
+        instance.destination = destination
+        instance.opcode = opcode
+        instance.parameters = parameters
+        instance.command_string = command_string
+        return instance
+
     def __str__(self):
-        """Return the original command string"""
-        return self._command_string
+        """Return the command string"""
+        return self.command_string
 
 
-class CECDelegate:
-    """CEC communication using libcec Python bindings"""
 
-    def __init__(self):
-        self.logger = logging.getLogger('CECDelegate')
-        self._cec = None
-        self._lib = None
-        self._config = None
+class CECEventBus:
+    """Event bus for CEC communication - manages callbacks and delegates to CECComms"""
+
+    def __init__(self, comms: CECComms):
+        self.logger = logging.getLogger('CECEventBus')
+        self._comms = comms
         self._callbacks = []
 
     def init(self) -> bool:
-        """Initialize the CEC adapter"""
-        try:
-            import cec
-            self._cec = cec
-
-            # Create configuration
-            self._config = cec.libcec_configuration()
-            self._config.strDeviceName = "PiCEC"
-            self._config.bActivateSource = 0
-            self._config.deviceTypes.Add(cec.CEC_DEVICE_TYPE_RECORDING_DEVICE)
-            self._config.clientVersion = cec.LIBCEC_VERSION_CURRENT
-
-            # Set command callback
-            self._config.SetCommandCallback(self._on_cec_command_internal)
-
-            # Create adapter
-            self._lib = cec.ICECAdapter.Create(self._config)
-            if not self._lib:
-                self.logger.error("Failed to create CEC adapter")
-                return False
-
-            self.logger.info(f"libCEC version {self._lib.VersionToString(self._config.serverVersion)} loaded")
-
-            # Detect and open adapter
-            adapters = self._lib.DetectAdapters()
-            if not adapters or len(adapters) == 0:
-                self.logger.error("No CEC adapters found")
-                return False
-
-            adapter = adapters[0]
-            self.logger.info(f"Found CEC adapter on port: {adapter.strComName}")
-
-            if not self._lib.Open(adapter.strComName):
-                self.logger.error("Failed to open connection to CEC adapter")
-                return False
-
-            self.logger.info("CEC adapter initialized successfully")
-            return True
-
-        except ImportError:
-            self.logger.error("libcec Python bindings not found. See README.md for installation instructions")
-            return False
-        except Exception as e:
-            self.logger.error(f"Failed to initialize CEC: {e}")
-            return False
+        """Initialize the CEC communication layer"""
+        return self._comms.init(self._on_cec_command_internal)
 
     def transmit(self, destination: int, opcode: int, params: bytes = b'') -> bool:
-        """Transmit a CEC command"""
-        if self._lib is None:
-            self.logger.error("CEC not initialized")
-            return False
-
-        try:
-            # Build command as hex string for CommandFromString
-            # Format: "XX:YY:ZZ..." where XX is (source << 4 | destination)
-            # Source address is our logical address (usually 1 for recording device)
-            addresses = self._lib.GetLogicalAddresses()
-            source = 1  # Default to CECDEVICE_RECORDINGDEVICE1
-
-            # Find our actual logical address
-            for i in range(15):
-                if addresses.IsSet(i):
-                    source = i
-                    break
-
-            first_byte = (source << 4) | destination
-            cmd_parts = [f"{first_byte:02X}", f"{opcode:02X}"]
-            if params:
-                cmd_parts.extend([f"{b:02X}" for b in params])
-            cmd_string = ":".join(cmd_parts)
-
-            # Create command from string
-            cmd = self._lib.CommandFromString(cmd_string)
-
-            # Log for debugging
-            self.logger.debug(f"TX: {cmd_string}")
-
-            # Transmit
-            if self._lib.Transmit(cmd):
-                return True
-            else:
-                # Log as debug - failure is expected when device is off/unreachable
-                self.logger.debug(f"Failed to transmit CEC command: {cmd_string}")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Failed to transmit CEC command: {e}")
-            return False
+        """Transmit a CEC command via the comms layer"""
+        command = CECCommand.build(destination, opcode, params)
+        return self._comms.transmit(command)
 
     def add_callback(self, handler: Callable[[CECCommand], None]) -> None:
         """Register a callback for received CEC commands"""
         self._callbacks.append(handler)
 
-    def _on_cec_command_internal(self, cmd_string):
-        """Internal callback from libcec"""
+    def _on_cec_command_internal(self, cmd_string: str) -> int:
+        """Internal callback from comms layer"""
         try:
             # Strip the ">>" prefix if present
             # @todo Does this ever happen? I suspect not
@@ -168,10 +126,5 @@ class CECDelegate:
             return 0
 
     def close(self) -> None:
-        """Close the CEC adapter"""
-        if self._lib is not None:
-            try:
-                self._lib.Close()
-                self.logger.info("CEC adapter closed")
-            except Exception as e:
-                self.logger.error(f"Error closing CEC adapter: {e}")
+        """Close the CEC communication layer"""
+        self._comms.close()

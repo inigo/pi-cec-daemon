@@ -5,17 +5,18 @@ CEC Daemon - Main business logic for HDMI CEC automation
 Monitors CEC traffic and automatically controls TV and peripherals based on state changes.
 """
 
-import sys
 import logging
 import signal
+import sys
 import time
-import yaml
 from datetime import datetime
-from pathlib import Path
 from threading import Thread, Event
 from typing import Optional
 
-from cec_delegate import CECDelegate, CECCommand
+import yaml
+
+from cec_comms import RealCECComms
+from cec_delegate import CECEventBus, CECCommand
 from devices import TV, Soundbar, Switch, Chromecast, PowerStatus, CECOpcode
 
 
@@ -35,8 +36,9 @@ class CECDaemon:
         self.logger = logging.getLogger('CECDaemon')
         self.logger.info("Initializing CEC Daemon")
 
-        # Initialize CEC delegate
-        self.delegate = CECDelegate()
+        # Initialize CEC event bus with real CEC communication
+        comms = RealCECComms()
+        self.delegate = CECEventBus(comms)
 
         # Initialize devices
         self.tv = TV(
