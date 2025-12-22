@@ -10,20 +10,29 @@ from typing import Callable
 
 class CECCommand:
     """Represents a received CEC command"""
-    def __init__(self, initiator: int, destination: int, opcode: int, parameters: bytes):
-        self.initiator = initiator
-        self.destination = destination
-        self.opcode = opcode
-        self.parameters = parameters
+    def __init__(self, command_string: str):
+        # Store the original command string
+        self._command_string = command_string.strip()
+
+        # Parse the command string (format: "XX:YY:ZZ..." where XX is initiator+destination)
+        parts = self._command_string.split(':')
+        if len(parts) < 2:
+            raise ValueError(f"Invalid CEC command format: {command_string}")
+
+        # Parse first byte: high nibble = initiator, low nibble = destination
+        first_byte = int(parts[0], 16)
+        self.initiator = (first_byte >> 4) & 0xF
+        self.destination = first_byte & 0xF
+
+        # Parse opcode (second byte)
+        self.opcode = int(parts[1], 16)
+
+        # Parse parameters (remaining bytes)
+        self.parameters = bytes([int(p, 16) for p in parts[2:]]) if len(parts) > 2 else b''
 
     def __str__(self):
-        """Format as hex string like '0F:87:00:E0:91'"""
-        # First byte is initiator (high nibble) + destination (low nibble)
-        first_byte = (self.initiator << 4) | self.destination
-        parts = [f"{first_byte:02X}", f"{self.opcode:02X}"]
-        if self.parameters:
-            parts.extend([f"{b:02X}" for b in self.parameters])
-        return ":".join(parts)
+        """Return the original command string"""
+        return self._command_string
 
 
 class CECDelegate:
@@ -133,34 +142,12 @@ class CECDelegate:
     def _on_cec_command_internal(self, cmd_string):
         """Internal callback from libcec"""
         try:
-            # Parse the command string (format: "XX:YY:ZZ..." where XX is initiator+destination)
-            if not cmd_string or cmd_string.startswith(">>"):
-                # Strip the ">>" prefix if present
+            # Strip the ">>" prefix if present
+            # @todo Does this ever happen? I suspect not
+            if cmd_string and cmd_string.startswith(">>"):
                 cmd_string = cmd_string.strip().lstrip(">").strip()
 
-            parts = cmd_string.split(':')
-            if len(parts) < 2:
-                self.logger.warning(f"Invalid CEC command format: {cmd_string}")
-                return 0
-
-            # Parse first byte: high nibble = initiator, low nibble = destination
-            first_byte = int(parts[0], 16)
-            initiator = (first_byte >> 4) & 0xF
-            destination = first_byte & 0xF
-
-            # Parse opcode (second byte)
-            opcode = int(parts[1], 16)
-
-            # Parse parameters (remaining bytes)
-            parameters = bytes([int(p, 16) for p in parts[2:]]) if len(parts) > 2 else b''
-
-            # Create CECCommand object
-            cec_cmd = CECCommand(
-                initiator=initiator,
-                destination=destination,
-                opcode=opcode,
-                parameters=parameters
-            )
+            cec_cmd = CECCommand(cmd_string)
 
             self.logger.debug(f"RX: {cec_cmd}")
 
@@ -173,6 +160,9 @@ class CECDelegate:
 
             return 0  # Callback should return 0
 
+        except ValueError as e:
+            self.logger.warning(f"Invalid CEC command: {e}")
+            return 0
         except Exception as e:
             self.logger.error(f"Error processing CEC command '{cmd_string}': {e}")
             return 0
