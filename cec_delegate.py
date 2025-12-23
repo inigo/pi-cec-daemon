@@ -28,7 +28,7 @@ def with_timeout(seconds: float):
             while cmd.initiator != 0 or cmd.opcode != 0x90:
                 cmd = yield []
             # Process response...
-            yield None
+            yield [CECCommand.build(...), None]  # Terminate with None
     """
     def decorator(processor_func):
         def wrapper():
@@ -90,7 +90,7 @@ class CECEventBus:
         Add a processor generator.
 
         The processor should yield lists of CECCommands to transmit, and receives
-        CECCommands via send(). Yield None to terminate.
+        CECCommands via send(). Include None in the command list to terminate.
 
         Args:
             processor: Generator that yields lists of CECCommands and receives CECCommands
@@ -99,15 +99,19 @@ class CECEventBus:
             # Start the processor and get the first list of commands to transmit
             first_commands = next(processor)
 
-            if first_commands is None:
-                # Processor completed immediately
-                self.logger.warning(f"Processor '{processor.__name__}' completed immediately (yielded None)")
-                return
-
-            # Transmit all initial commands
+            # Transmit all initial commands, check for None termination signal
+            processor_done = False
             for cmd in first_commands:
+                if cmd is None:
+                    # Processor signaled termination
+                    processor_done = True
+                    break
                 self._comms.transmit(cmd)
                 self.logger.debug(f"Processor '{processor.__name__}' sent initial command: {cmd}")
+
+            if processor_done:
+                self.logger.debug(f"Processor '{processor.__name__}' completed immediately (None in command list)")
+                return
 
             # Add to active processors list
             self._processors.append(processor)
@@ -145,15 +149,15 @@ class CECEventBus:
                     # Send the command to the processor
                     commands = processor.send(cec_cmd)
 
-                    # If processor yielded None, it's finished
-                    if commands is None:
-                        self.logger.debug(f"Processor '{processor.__name__}' yielded None (terminating)")
-                        finished_processors.append(processor)
-                    else:
-                        # Processor yielded a list of commands - transmit them all
-                        for cmd in commands:
-                            self._comms.transmit(cmd)
-                            self.logger.debug(f"Processor '{processor.__name__}' sent command: {cmd}")
+                    # Processor yielded a list of commands - transmit them all
+                    # Check for None in the list which signals termination
+                    for cmd in commands:
+                        if cmd is None:
+                            self.logger.debug(f"Processor '{processor.__name__}' signaled termination (None in command list)")
+                            finished_processors.append(processor)
+                            break
+                        self._comms.transmit(cmd)
+                        self.logger.debug(f"Processor '{processor.__name__}' sent command: {cmd}")
 
                 except StopIteration:
                     # Processor finished via return
