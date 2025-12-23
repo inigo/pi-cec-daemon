@@ -243,3 +243,283 @@ class TestCECEventBus:
 
         # After close, transmit should fail (mock is closed)
         assert bus.transmit(destination=0, opcode=0x8F) is False
+
+
+class TestProcessors:
+    """Test processor generator functionality"""
+
+    def test_simple_processor(self):
+        """Test a processor that sends one command and completes"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        response_received = [None]
+
+        def simple_processor():
+            # Send a power status request
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+
+            # Loop until we get the response we want
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+
+            response_received[0] = cmd
+
+            # Done - yield None to terminate
+            yield None
+
+        bus.add_processor(simple_processor())
+
+        # Should have sent the initial command
+        assert len(mock.transmitted_commands) == 1
+        assert mock.transmitted_commands[0] == "10:8F"
+
+        # Simulate unrelated traffic (should be ignored)
+        mock.simulate_received_command("4F:82:10:00")
+        assert response_received[0] is None
+
+        # Simulate TV response
+        mock.simulate_received_command("01:90:00")
+        assert response_received[0] is not None
+        assert response_received[0].opcode == 0x90
+
+        # Processor should be complete and removed (no active processors)
+        assert len(bus._processors) == 0
+
+    def test_processor_sends_multiple_commands(self):
+        """Test a processor that sends multiple commands in sequence"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        def multi_command_processor():
+            # Send first command
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+
+            # Wait for TV response
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+
+            # Send second command
+            cmd = yield [CECCommand.build(destination=5, opcode=0x36)]
+
+            # Wait for soundbar response
+            while cmd.initiator != 5 or cmd.opcode != 0x90:
+                cmd = yield []
+
+            # Done
+            yield None
+
+        bus.add_processor(multi_command_processor())
+
+        # Should have sent first command
+        assert len(mock.transmitted_commands) == 1
+        assert mock.transmitted_commands[0] == "10:8F"
+
+        # Simulate first response
+        mock.simulate_received_command("01:90:00")
+
+        # Should have sent second command
+        assert len(mock.transmitted_commands) == 2
+        assert mock.transmitted_commands[1] == "15:36"
+
+        # Simulate second response
+        mock.simulate_received_command("51:90:01")
+
+        # Processor should be complete
+        assert len(bus._processors) == 0
+
+    def test_processor_sends_batch_commands(self):
+        """Test a processor that sends multiple commands at once (e.g., user control pressed + released)"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        def batch_processor():
+            # Send user control pressed + released together
+            cmd = yield [
+                CECCommand.build(destination=5, opcode=0x44, parameters=b'\x40'),  # Power button pressed
+                CECCommand.build(destination=5, opcode=0x45)  # Button released
+            ]
+
+            # Wait for response
+            while cmd.initiator != 5 or cmd.opcode != 0x90:
+                cmd = yield []
+
+            # Done
+            yield None
+
+        bus.add_processor(batch_processor())
+
+        # Should have sent both commands
+        assert len(mock.transmitted_commands) == 2
+        assert mock.transmitted_commands[0] == "15:44:40"
+        assert mock.transmitted_commands[1] == "15:45"
+
+        # Simulate response
+        mock.simulate_received_command("51:90:00")
+
+        # Processor should be complete
+        assert len(bus._processors) == 0
+
+    def test_processor_yields_empty_list(self):
+        """Test a processor that yields [] to receive without transmitting"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        received_count = [0]
+
+        def counting_processor():
+            # Send initial command and receive first response
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            received_count[0] += 1
+
+            # Receive a few more commands without sending anything
+            for _ in range(2):
+                cmd = yield []
+                received_count[0] += 1
+
+            # Done
+            yield None
+
+        bus.add_processor(counting_processor())
+
+        # Should have sent initial command
+        assert len(mock.transmitted_commands) == 1
+
+        # Simulate three responses
+        mock.simulate_received_command("01:90:00")
+        assert len(mock.transmitted_commands) == 1  # No new commands
+        assert received_count[0] == 1
+
+        mock.simulate_received_command("4F:82:10:00")
+        assert len(mock.transmitted_commands) == 1
+        assert received_count[0] == 2
+
+        mock.simulate_received_command("01:90:01")
+        assert len(mock.transmitted_commands) == 1
+        assert received_count[0] == 3
+
+        # Processor should be complete
+        assert len(bus._processors) == 0
+
+    def test_multiple_processors(self):
+        """Test multiple processors running concurrently"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        processor1_done = [False]
+        processor2_done = [False]
+
+        def processor1():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+            processor1_done[0] = True
+            yield None
+
+        def processor2():
+            cmd = yield [CECCommand.build(destination=5, opcode=0x36)]
+            while cmd.initiator != 5 or cmd.opcode != 0x90:
+                cmd = yield []
+            processor2_done[0] = True
+            yield None
+
+        bus.add_processor(processor1())
+        bus.add_processor(processor2())
+
+        # Should have two processors active
+        assert len(bus._processors) == 2
+
+        # Should have sent both initial commands
+        assert len(mock.transmitted_commands) == 2
+        assert "10:8F" in mock.transmitted_commands
+        assert "15:36" in mock.transmitted_commands
+
+        # Simulate TV response (only processor1 should complete)
+        mock.simulate_received_command("01:90:00")
+        assert processor1_done[0] is True
+        assert processor2_done[0] is False
+        assert len(bus._processors) == 1
+
+        # Simulate soundbar response (processor2 should complete)
+        mock.simulate_received_command("51:90:01")
+        assert processor2_done[0] is True
+        assert len(bus._processors) == 0
+
+    def test_processor_exception_handling(self):
+        """Test that processor exceptions are handled gracefully"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        good_processor_done = [False]
+
+        def bad_processor():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            raise Exception("Something went wrong")
+
+        def good_processor():
+            cmd = yield [CECCommand.build(destination=5, opcode=0x36)]
+            while cmd.initiator != 5 or cmd.opcode != 0x90:
+                cmd = yield []
+            good_processor_done[0] = True
+            yield None
+
+        bus.add_processor(bad_processor())
+        bus.add_processor(good_processor())
+
+        # Should have two processors
+        assert len(bus._processors) == 2
+
+        # Simulate response - bad processor will crash and be removed
+        mock.simulate_received_command("01:90:00")
+
+        # Bad processor should be removed, good one should remain
+        assert len(bus._processors) == 1
+
+        # Good processor should still work
+        mock.simulate_received_command("51:90:00")
+        assert good_processor_done[0] is True
+        assert len(bus._processors) == 0
+
+    def test_processor_with_callbacks(self):
+        """Test that processors and callbacks can coexist"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        callback_commands = []
+        processor_commands = []
+
+        def callback(cmd):
+            callback_commands.append(cmd.command_string)
+
+        def processor():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+            processor_commands.append(cmd.command_string)
+            yield None
+
+        bus.add_callback(callback)
+        bus.add_processor(processor())
+
+        # Simulate unrelated command
+        mock.simulate_received_command("4F:82:10:00")
+
+        # Callback should receive it, processor ignores it
+        assert len(callback_commands) == 1
+        assert len(processor_commands) == 0
+
+        # Simulate TV response
+        mock.simulate_received_command("01:90:00")
+
+        # Both callback and processor should have received the command
+        assert len(callback_commands) == 2
+        assert len(processor_commands) == 1
+        assert callback_commands[1] == "01:90:00"
+        assert processor_commands[0] == "01:90:00"
