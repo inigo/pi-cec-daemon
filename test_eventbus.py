@@ -5,8 +5,9 @@ Run with: pytest test_eventbus.py -v
 """
 
 import pytest
+import time
 from cec_comms import MockCECComms, CECCommand
-from cec_delegate import CECEventBus
+from cec_delegate import CECEventBus, with_timeout
 
 
 class TestCECCommand:
@@ -523,3 +524,166 @@ class TestProcessors:
         assert len(processor_commands) == 1
         assert callback_commands[1] == "01:90:00"
         assert processor_commands[0] == "01:90:00"
+
+
+class TestTimeoutDecorator:
+    """Test with_timeout decorator functionality"""
+
+    def test_processor_completes_before_timeout(self):
+        """Test that processor completes normally if within timeout"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        completed = [False]
+
+        @with_timeout(1.0)
+        def quick_processor():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+            completed[0] = True
+            yield None
+
+        bus.add_processor(quick_processor())
+
+        # Immediately respond - well within timeout
+        mock.simulate_received_command("01:90:00")
+
+        assert completed[0] is True
+        assert len(bus._processors) == 0
+
+    def test_processor_times_out(self):
+        """Test that processor is removed after timeout"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        completed = [False]
+
+        @with_timeout(0.1)  # 100ms timeout
+        def slow_processor():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+            completed[0] = True
+            yield None
+
+        bus.add_processor(slow_processor())
+
+        # Should have one processor
+        assert len(bus._processors) == 1
+
+        # Send wrong commands and wait for timeout
+        for _ in range(5):
+            time.sleep(0.03)  # 30ms
+            mock.simulate_received_command("4F:82:10:00")
+
+        # Processor should have timed out and been removed
+        assert len(bus._processors) == 0
+        assert completed[0] is False
+
+    def test_timeout_preserves_function_name(self):
+        """Test that decorator preserves function name for logging"""
+        @with_timeout(5.0)
+        def named_processor():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            yield None
+
+        gen = named_processor()
+        assert gen.__name__ == "named_processor"
+
+    def test_multiple_processors_with_different_timeouts(self):
+        """Test that each processor has its own independent timeout"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        fast_done = [False]
+        slow_done = [False]
+
+        @with_timeout(0.1)  # 100ms
+        def fast_timeout_processor():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+            fast_done[0] = True
+            yield None
+
+        @with_timeout(1.0)  # 1 second
+        def slow_timeout_processor():
+            cmd = yield [CECCommand.build(destination=5, opcode=0x36)]
+            while cmd.initiator != 5 or cmd.opcode != 0x90:
+                cmd = yield []
+            slow_done[0] = True
+            yield None
+
+        bus.add_processor(fast_timeout_processor())
+        bus.add_processor(slow_timeout_processor())
+
+        assert len(bus._processors) == 2
+
+        # Send unrelated events until fast one times out
+        for _ in range(5):
+            time.sleep(0.03)
+            mock.simulate_received_command("4F:82:10:00")
+
+        # Fast processor should have timed out, slow one still active
+        assert len(bus._processors) == 1
+        assert fast_done[0] is False
+        assert slow_done[0] is False
+
+        # Now respond to slow processor
+        mock.simulate_received_command("51:90:00")
+
+        # Slow processor should complete normally
+        assert len(bus._processors) == 0
+        assert slow_done[0] is True
+
+    def test_timeout_with_processor_exception(self):
+        """Test that timeout wrapper handles processor exceptions"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        @with_timeout(1.0)
+        def bad_processor():
+            cmd = yield [CECCommand.build(destination=0, opcode=0x8F)]
+            raise Exception("Processor error")
+
+        bus.add_processor(bad_processor())
+
+        assert len(bus._processors) == 1
+
+        # Simulate event - should trigger exception
+        mock.simulate_received_command("01:90:00")
+
+        # Processor should be removed due to exception
+        assert len(bus._processors) == 0
+
+    def test_timeout_zero_commands(self):
+        """Test timeout decorator with processor that sends no initial commands"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        received = [False]
+
+        @with_timeout(1.0)
+        def passive_processor():
+            cmd = yield []  # Send nothing initially
+            while cmd.initiator != 0 or cmd.opcode != 0x90:
+                cmd = yield []
+            received[0] = True
+            yield None
+
+        bus.add_processor(passive_processor())
+
+        # Should send no commands
+        assert len(mock.transmitted_commands) == 0
+
+        # Simulate event
+        mock.simulate_received_command("01:90:00")
+
+        assert received[0] is True
+        assert len(bus._processors) == 0
