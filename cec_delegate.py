@@ -95,6 +95,13 @@ class CECEventBus:
         Args:
             processor: Generator that yields lists of CECCommands and receives CECCommands
         """
+        # Check if a processor with this name already exists
+        processor_name = processor.__name__
+        for existing in self._processors:
+            if existing.__name__ == processor_name:
+                self.logger.warning(f"Processor '{processor_name}' already active, not adding duplicate")
+                return
+
         try:
             # Start the processor and get the first list of commands to transmit
             first_commands = next(processor)
