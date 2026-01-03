@@ -1,21 +1,28 @@
 import time
 from unittest.mock import patch, Mock
+import pytest
 
 from cec_comms import MockCECComms
 from cec_delegate import CECEventBus
-from processors import TurnSoundbarOnProcessor, SoundbarOnWithTvProcessor, SwitchStatusProcessor
+from processors import Addresses, TurnSoundbarOnProcessor, SoundbarOnWithTvProcessor, SwitchStatusProcessor
+
+
+@pytest.fixture
+def addresses():
+    """Fixture providing Addresses instance for all tests"""
+    return Addresses()
 
 
 class TestSoundbarOnWithTvProcessor:
     """Test SoundbarOnWithTvProcessor"""
 
-    def test_tv_on_soundbar_off_turns_on_soundbar(self):
+    def test_tv_on_soundbar_off_turns_on_soundbar(self, addresses):
         """Test that soundbar is turned on when TV is on and soundbar is off"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTvProcessor(bus))
+        bus.add_processor(SoundbarOnWithTvProcessor(bus, addresses))
 
         # Should send TV power status request
         assert len(mock.transmitted_commands) == 1
@@ -40,13 +47,13 @@ class TestSoundbarOnWithTvProcessor:
         # All processors should be done
         assert len(bus._processors) == 0
 
-    def test_tv_on_soundbar_already_on_does_nothing(self):
+    def test_tv_on_soundbar_already_on_does_nothing(self, addresses):
         """Test that nothing happens when both TV and soundbar are already on"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTvProcessor(bus))
+        bus.add_processor(SoundbarOnWithTvProcessor(bus, addresses))
 
         # TV power status request
         assert mock.transmitted_commands[0] == "10:8F"
@@ -66,13 +73,13 @@ class TestSoundbarOnWithTvProcessor:
         # Processor should be done
         assert len(bus._processors) == 0
 
-    def test_tv_off_does_nothing(self):
+    def test_tv_off_does_nothing(self, addresses):
         """Test that nothing happens when TV is off"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTvProcessor(bus))
+        bus.add_processor(SoundbarOnWithTvProcessor(bus, addresses))
 
         # TV power status request
         assert mock.transmitted_commands[0] == "10:8F"
@@ -86,13 +93,13 @@ class TestSoundbarOnWithTvProcessor:
         # Processor should be done
         assert len(bus._processors) == 0
 
-    def test_filters_unrelated_traffic(self):
+    def test_filters_unrelated_traffic(self, addresses):
         """Test that processor filters out unrelated CEC traffic"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTvProcessor(bus))
+        bus.add_processor(SoundbarOnWithTvProcessor(bus, addresses))
 
         # TV power status request sent
         assert mock.transmitted_commands[0] == "10:8F"
@@ -130,14 +137,14 @@ class TestSoundbarOnWithTvProcessor:
 class TestSwitchStatusProcessor:
     """Test SwitchStatusProcessor"""
 
-    def test_switch_initially_off(self):
+    def test_switch_initially_off(self, addresses):
         """Test that processor correctly handles Switch being initially off"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
         bus.init()
 
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
 
         # Should send initial status request
         assert len(mock.transmitted_commands) == 1
@@ -153,7 +160,7 @@ class TestSwitchStatusProcessor:
         # Processor should still be active
         assert len(bus._processors) == 1
 
-    def test_switch_initially_on(self):
+    def test_switch_initially_on(self, addresses):
         """Test that processor correctly handles Switch being initially on"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
@@ -165,7 +172,7 @@ class TestSwitchStatusProcessor:
 
         with patch('time.time', return_value=1000.0):
             bus.add_processor = original_add_processor
-            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
             bus.add_processor = mock_add_processor
 
         # Should send initial status request
@@ -184,7 +191,7 @@ class TestSwitchStatusProcessor:
         # Only SwitchStatusProcessor should be active
         assert len(bus._processors) == 1
 
-    def test_switch_turns_on_via_active_source(self):
+    def test_switch_turns_on_via_active_source(self, addresses):
         """Test Switch turning on via ACTIVE_SOURCE broadcast"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
@@ -196,7 +203,7 @@ class TestSwitchStatusProcessor:
 
         with patch('time.time', return_value=1000.0):
             bus.add_processor = original_add_processor
-            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
             bus.add_processor = mock_add_processor
 
         # Initial status request
@@ -216,7 +223,7 @@ class TestSwitchStatusProcessor:
         # Should not send any more commands (TurnSoundbarOnProcessor was mocked)
         assert len(mock.transmitted_commands) == 1
 
-    def test_switch_turns_off_via_poll_timeout(self):
+    def test_switch_turns_off_via_poll_timeout(self, addresses):
         """Test Switch turning off detected via poll timeout"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
@@ -229,7 +236,7 @@ class TestSwitchStatusProcessor:
         # Start with Switch on
         with patch('time.time', return_value=1000.0):
             bus.add_processor = original_add_processor
-            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
             bus.add_processor = mock_add_processor
 
         # Initial status request
@@ -258,7 +265,7 @@ class TestSwitchStatusProcessor:
         assert len(mock.transmitted_commands) == 3
         assert mock.transmitted_commands[2] == "1F:86:30:00"  # SET_STREAM_PATH to Chromecast
 
-    def test_switch_turns_off_via_status_report(self):
+    def test_switch_turns_off_via_status_report(self, addresses):
         """Test Switch turning off detected via status report"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
@@ -271,7 +278,7 @@ class TestSwitchStatusProcessor:
         # Start with Switch on
         with patch('time.time', return_value=1000.0):
             bus.add_processor = original_add_processor
-            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
             bus.add_processor = mock_add_processor
 
         # Simulate Switch responding as ON
@@ -296,7 +303,7 @@ class TestSwitchStatusProcessor:
         assert len(mock.transmitted_commands) == 3
         assert mock.transmitted_commands[2] == "1F:86:30:00"  # SET_STREAM_PATH to Chromecast
 
-    def test_periodic_polling_while_on(self):
+    def test_periodic_polling_while_on(self, addresses):
         """Test that Switch is polled periodically while on"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
@@ -309,7 +316,7 @@ class TestSwitchStatusProcessor:
         # Start with Switch on
         with patch('time.time', return_value=1000.0):
             bus.add_processor = original_add_processor
-            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
             bus.add_processor = mock_add_processor
 
         # Simulate Switch responding as ON
@@ -337,14 +344,14 @@ class TestSwitchStatusProcessor:
         assert len(mock.transmitted_commands) == 3
         assert mock.transmitted_commands[2] == "14:8F"  # Second poll
 
-    def test_filters_unrelated_traffic(self):
+    def test_filters_unrelated_traffic(self, addresses):
         """Test that processor correctly filters unrelated CEC traffic"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
         bus.init()
 
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
 
         # Initial request sent
         assert len(mock.transmitted_commands) == 1
