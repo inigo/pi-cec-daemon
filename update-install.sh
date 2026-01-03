@@ -26,44 +26,29 @@ if [ ! -d "$INSTALL_DIR" ]; then
     exit 1
 fi
 
-echo "Step 1: Stopping service..."
+echo "-- Stopping service..."
 systemctl stop "$SERVICE_NAME" || true
 
 echo ""
-echo "Step 2: Backing up current installation..."
+echo "-- Backing up current installation..."
 BACKUP_DIR="$INSTALL_DIR.backup.$(date +%Y%m%d_%H%M%S)"
 cp -r "$INSTALL_DIR" "$BACKUP_DIR"
 echo "Backup created at: $BACKUP_DIR"
 
 echo ""
-echo "Step 3: Updating Python files..."
+echo "-- Updating Python files..."
 cp ./*.py "$INSTALL_DIR/"
 
 echo ""
-echo "Step 4: Updating configuration..."
-# Only update config.yaml if user hasn't modified it, or create if missing
-if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
-    echo "Config file missing, copying new one..."
-    cp config.yaml "$INSTALL_DIR/"
-elif diff -q config.yaml "$INSTALL_DIR/config.yaml" > /dev/null 2>&1; then
-    echo "Config unchanged, skipping..."
-else
-    echo "WARNING: config.yaml has local changes"
-    echo "New config saved as: $INSTALL_DIR/config.yaml.new"
-    cp config.yaml "$INSTALL_DIR/config.yaml.new"
-    echo "Please merge changes manually if needed"
-fi
-
-echo ""
-echo "Step 5: Setting permissions..."
+echo "-- Setting permissions..."
 chown -R "$USER:$USER" "$INSTALL_DIR"
 
 echo ""
-echo "Step 6: Starting service..."
+echo "-- Starting service..."
 systemctl start "$SERVICE_NAME"
 
 echo ""
-echo "Step 7: Checking service status..."
+echo "-- Checking service status..."
 sleep 1
 systemctl status "$SERVICE_NAME" --no-pager || true
 

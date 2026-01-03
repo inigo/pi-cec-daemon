@@ -2,17 +2,9 @@
 
 A Python daemon that monitors HDMI CEC traffic and automatically controls TV and audio peripherals based on device state changes.
 
-## Architecture
-
-- **CEC Delegate Layer** (`cec_delegate.py`): Low-level CEC transmit/receive interface using libcec Python bindings
-- **Device Classes** (`devices.py`): TV, Soundbar, Switch, and Chromecast abstractions
-- **Business Logic** (`cec_daemon.py`): Main daemon implementing automation rules
-- **Configuration** (`config.yaml`): Device addresses and settings
-
 ## Dependencies
 
 - **libcec Python bindings**: Python module for libcec (must be compiled from source - see below)
-- `python3-yaml`: YAML parsing library (installed from apt)
 - `cec-utils`: CEC utilities for testing (installed from apt)
 
 ## Installing libcec Python Bindings
@@ -80,7 +72,7 @@ If this command succeeds without errors, the bindings are installed correctly.
 
    This will:
    - Check that libcec Python bindings are installed
-   - Install system dependencies (python3-yaml, cec-utils)
+   - Install system dependencies
    - Copy files to /opt/pi-cec-daemon
    - Install and start the systemd service
 
@@ -108,17 +100,7 @@ This will:
 - Stop the service
 - Create a timestamped backup
 - Copy updated Python files
-- Preserve your config.yaml (saves new config as config.yaml.new if changes detected)
 - Restart the service
-
-## Configuration
-
-Edit `/opt/pi-cec-daemon/config.yaml` to update device logical addresses if devices are moved to different HDMI ports.
-
-After editing, restart the service:
-```bash
-sudo systemctl restart pi-cec-daemon
-```
 
 ## Manual Testing
 

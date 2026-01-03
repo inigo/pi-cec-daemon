@@ -7,7 +7,7 @@ Type=simple
 User=pi
 Group=pi
 WorkingDirectory=/opt/pi-cec-daemon
-ExecStart=/usr/bin/python3 /opt/pi-cec-daemon/cec_daemon.py /opt/pi-cec-daemon/config.yaml
+ExecStart=/usr/bin/python3 /opt/pi-cec-daemon/cli.py
 Restart=always
 RestartSec=10
 
@@ -16,7 +16,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pi-cec-daemon
 
-# Security hardening (optional but recommended)
+# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 

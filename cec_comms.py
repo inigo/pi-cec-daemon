@@ -67,7 +67,6 @@ class CECCommand:
         """Return the command string"""
         return self.command_string
 
-
 class CECComms(ABC):
     """Abstract interface for CEC communication"""
 

@@ -7,7 +7,8 @@ Run with: pytest test_eventbus.py -v
 import pytest
 import time
 from cec_comms import MockCECComms, CECCommand
-from cec_delegate import CECEventBus, with_timeout
+from eventbus import CECEventBus
+from with_timeout import with_timeout
 
 
 class TestCECCommand:

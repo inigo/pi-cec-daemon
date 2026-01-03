@@ -50,30 +50,30 @@ fi
 echo "✓ libcec Python bindings found"
 
 echo ""
-echo "Step 1: Installing system dependencies..."
+echo "-- Installing system dependencies..."
 apt-get update
 apt-get install -y python3-yaml cec-utils
 
 echo ""
-echo "Step 2: Creating installation directory..."
+echo "-- Creating installation directory..."
 mkdir -p "$INSTALL_DIR"
 
 echo ""
-echo "Step 3: Copying files to $INSTALL_DIR..."
+echo "-- Copying files to $INSTALL_DIR..."
 cp -r ./*.py "$INSTALL_DIR/"
 cp config.yaml "$INSTALL_DIR/"
 
 echo ""
-echo "Step 4: Setting permissions..."
+echo "-- Setting permissions..."
 chown -R "$USER:$USER" "$INSTALL_DIR"
 
 echo ""
-echo "Step 5: Installing systemd service..."
+echo "-- Installing systemd service..."
 cp "$(dirname "$0")/pi-cec-daemon.service" /etc/systemd/system/
 systemctl daemon-reload
 
 echo ""
-echo "Step 6: Enabling and starting service..."
+echo "-- Enabling and starting service..."
 systemctl enable "$SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
 
