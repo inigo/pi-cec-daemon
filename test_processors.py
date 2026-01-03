@@ -1,6 +1,9 @@
+import time
+from unittest.mock import patch
+
 from cec_comms import MockCECComms
 from cec_delegate import CECEventBus
-from processors import SoundbarOnWithTv
+from processors import SoundbarOnWithTv, SwitchStatus
 
 
 class TestSoundbarOnWithTv:
@@ -121,3 +124,194 @@ class TestSoundbarOnWithTv:
 
         # Processor done (terminated via None in command list)
         assert len(bus._processors) == 0
+
+
+class TestSwitchStatus:
+    """Test SwitchStatus processor"""
+
+    def test_switch_initially_off(self):
+        """Test that processor correctly handles Switch being initially off"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor(SwitchStatus())
+
+        # Should send initial status request
+        assert len(mock.transmitted_commands) == 1
+        assert mock.transmitted_commands[0] == "14:8F"  # Request Switch power status
+
+        # Simulate no response (timeout) - advance time past timeout
+        with patch('time.time', return_value=1002.5):  # 2.5 seconds later (past 2.0s timeout)
+            mock.simulate_received_command("01:90:00")  # Any unrelated command to trigger processing
+
+        # Should not send Chromecast switch command (Switch wasn't on)
+        assert len(mock.transmitted_commands) == 1
+
+        # Processor should still be active
+        assert len(bus._processors) == 1
+
+    def test_switch_initially_on(self):
+        """Test that processor correctly handles Switch being initially on"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor(SwitchStatus())
+
+        # Should send initial status request
+        assert mock.transmitted_commands[0] == "14:8F"
+
+        # Simulate Switch responding as ON
+        with patch('time.time', return_value=1000.5):
+            mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Should not send any more commands yet (waiting for poll interval)
+        assert len(mock.transmitted_commands) == 1
+
+        # Processor should still be active
+        assert len(bus._processors) == 1
+
+    def test_switch_turns_on_via_active_source(self):
+        """Test Switch turning on via ACTIVE_SOURCE broadcast"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor(SwitchStatus())
+
+        # Initial status request
+        assert mock.transmitted_commands[0] == "14:8F"
+
+        # Simulate timeout (Switch is off)
+        with patch('time.time', return_value=1002.5):
+            mock.simulate_received_command("01:90:00")  # Unrelated command
+
+        # Now simulate Switch broadcasting ACTIVE_SOURCE
+        with patch('time.time', return_value=1010.0):
+            mock.simulate_received_command("4F:82:10:00")  # Switch ACTIVE_SOURCE
+
+        # Should not send any commands (just tracking state)
+        assert len(mock.transmitted_commands) == 1
+
+    def test_switch_turns_off_via_poll_timeout(self):
+        """Test Switch turning off detected via poll timeout"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        # Start with Switch on
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor(SwitchStatus())
+
+        # Initial status request
+        assert mock.transmitted_commands[0] == "14:8F"
+
+        # Simulate Switch responding as ON
+        with patch('time.time', return_value=1000.5):
+            mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Advance time to trigger first poll
+        with patch('time.time', return_value=1005.5):  # 5 seconds later
+            mock.simulate_received_command("01:90:00")  # Unrelated event to trigger processing
+
+        # Should have sent a poll
+        assert len(mock.transmitted_commands) == 2
+        assert mock.transmitted_commands[1] == "14:8F"  # Poll Switch status
+
+        # Simulate poll timeout (no response) - advance past timeout
+        with patch('time.time', return_value=1008.0):  # 2.5 seconds after poll
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
+        # Should have sent Chromecast switch command
+        assert len(mock.transmitted_commands) == 3
+        assert mock.transmitted_commands[2] == "1F:86:30:00"  # SET_STREAM_PATH to Chromecast
+
+    def test_switch_turns_off_via_status_report(self):
+        """Test Switch turning off detected via status report"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        # Start with Switch on
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor(SwitchStatus())
+
+        # Simulate Switch responding as ON
+        with patch('time.time', return_value=1000.5):
+            mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Advance time to trigger poll
+        with patch('time.time', return_value=1005.5):
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
+        # Should have sent a poll
+        assert mock.transmitted_commands[1] == "14:8F"
+
+        # Simulate Switch responding with STANDBY status
+        with patch('time.time', return_value=1006.0):
+            mock.simulate_received_command("41:90:01")  # Switch reports STANDBY
+
+        # Should have sent Chromecast switch command
+        assert len(mock.transmitted_commands) == 3
+        assert mock.transmitted_commands[2] == "1F:86:30:00"  # SET_STREAM_PATH to Chromecast
+
+    def test_periodic_polling_while_on(self):
+        """Test that Switch is polled periodically while on"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        # Start with Switch on
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor(SwitchStatus())
+
+        # Simulate Switch responding as ON
+        with patch('time.time', return_value=1000.5):
+            mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Advance time to trigger first poll (5 second interval)
+        with patch('time.time', return_value=1005.5):
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
+        assert len(mock.transmitted_commands) == 2
+        assert mock.transmitted_commands[1] == "14:8F"  # First poll
+
+        # Respond to poll
+        with patch('time.time', return_value=1006.0):
+            mock.simulate_received_command("41:90:00")  # Switch still ON
+
+        # Advance time to trigger second poll
+        with patch('time.time', return_value=1011.5):
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
+        assert len(mock.transmitted_commands) == 3
+        assert mock.transmitted_commands[2] == "14:8F"  # Second poll
+
+    def test_filters_unrelated_traffic(self):
+        """Test that processor correctly filters unrelated CEC traffic"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor(SwitchStatus())
+
+        # Initial request sent
+        assert len(mock.transmitted_commands) == 1
+
+        # Send various unrelated commands
+        with patch('time.time', return_value=1000.5):
+            mock.simulate_received_command("01:90:00")  # TV power status
+            mock.simulate_received_command("51:90:01")  # Soundbar power status
+            mock.simulate_received_command("0F:87:00:E0:91")  # Vendor ID
+
+        # Should not send any additional commands (still waiting for initial response or timeout)
+        assert len(mock.transmitted_commands) == 1
+
+        # Processor should still be active
+        assert len(bus._processors) == 1
+
