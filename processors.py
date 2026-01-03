@@ -66,8 +66,8 @@ def SwitchStatus():
 
     Steps:
     1. Initially check if Switch is on
-    2. While Switch is on: poll periodically to detect when it turns off
-    3. While Switch is off: watch for ACTIVE_SOURCE message indicating it turned on
+    2. While Switch is on: poll every 5 seconds to detect when it turns off
+    3. While Switch is off: poll every 60 seconds and watch for ACTIVE_SOURCE to detect when it turns on
     4. When Switch turns off: switch active source to Chromecast
     """
     logger = logging.getLogger('SwitchStatus')
@@ -80,8 +80,9 @@ def SwitchStatus():
     CHROMECAST_PHYSICAL_ADDRESS = b'\x30\x00'
 
     # Timing constants
-    POLL_INTERVAL = 5.0  # Poll every 5 seconds when Switch is on
-    POLL_TIMEOUT = 2.0   # Wait 2 seconds for poll response
+    POLL_INTERVAL_ON = 5.0   # Poll every 5 seconds when Switch is on
+    POLL_INTERVAL_OFF = 60.0  # Poll every 60 seconds when Switch is off
+    POLL_TIMEOUT = 2.0        # Wait 2 seconds for poll response
 
     # State tracking
     switch_is_on = False
@@ -150,10 +151,14 @@ def SwitchStatus():
                             )]
                             continue
 
-        # Send periodic poll if Switch is on and not waiting for response
-        if switch_is_on and not waiting_for_poll_response:
-            if (current_time - last_poll_time) >= POLL_INTERVAL:
-                logger.debug("Polling Switch status")
+        # Send periodic poll if not waiting for response
+        if not waiting_for_poll_response:
+            poll_interval = POLL_INTERVAL_ON if switch_is_on else POLL_INTERVAL_OFF
+            if (current_time - last_poll_time) >= poll_interval:
+                if switch_is_on:
+                    logger.debug("Polling Switch status (on)")
+                else:
+                    logger.debug("Polling Switch status (periodic check while off)")
                 cmd = yield [CECCommand.build(destination=SWITCH_ADDRESS, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
                 last_poll_time = current_time
                 waiting_for_poll_response = True
