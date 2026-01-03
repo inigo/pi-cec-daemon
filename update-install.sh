@@ -44,6 +44,11 @@ echo "-- Setting permissions..."
 chown -R "$USER:$USER" "$INSTALL_DIR"
 
 echo ""
+echo "-- Installing systemd service..."
+cp "$(dirname "$0")/pi-cec-daemon.service" /etc/systemd/system/
+systemctl daemon-reload
+
+echo ""
 echo "-- Starting service..."
 systemctl start "$SERVICE_NAME"
 
