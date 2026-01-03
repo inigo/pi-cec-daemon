@@ -31,8 +31,8 @@ def with_timeout(seconds: float):
             yield [CECCommand.build(...), None]  # Terminate with None
     """
     def decorator(processor_func):
-        def wrapper():
-            gen = processor_func()  # Create the actual processor
+        def wrapper(*args, **kwargs):
+            gen = processor_func(*args, **kwargs)  # Create the actual processor with arguments
             start_time = time.time()
             logger = logging.getLogger(f'Processor({processor_func.__name__})')
 

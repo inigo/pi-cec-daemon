@@ -1,13 +1,13 @@
 import time
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from cec_comms import MockCECComms
 from cec_delegate import CECEventBus
-from processors import SoundbarOnWithTv, SwitchStatus
+from processors import TurnSoundbarOnProcessor, SoundbarOnWithTvProcessor, SwitchStatusProcessor
 
 
-class TestSoundbarOnWithTv:
-    """Test SoundbarOnWithTv processor"""
+class TestSoundbarOnWithTvProcessor:
+    """Test SoundbarOnWithTvProcessor"""
 
     def test_tv_on_soundbar_off_turns_on_soundbar(self):
         """Test that soundbar is turned on when TV is on and soundbar is off"""
@@ -15,7 +15,7 @@ class TestSoundbarOnWithTv:
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTv())
+        bus.add_processor(SoundbarOnWithTvProcessor(bus))
 
         # Should send TV power status request
         assert len(mock.transmitted_commands) == 1
@@ -24,7 +24,8 @@ class TestSoundbarOnWithTv:
         # Simulate TV is ON
         mock.simulate_received_command("01:90:00")  # TV reports ON
 
-        # Should send soundbar power status request
+        # SoundbarOnWithTvProcessor should be done, TurnSoundbarOnProcessor should be spawned
+        # TurnSoundbarOnProcessor should send soundbar power status request
         assert len(mock.transmitted_commands) == 2
         assert mock.transmitted_commands[1] == "15:8F"  # Request soundbar power status
 
@@ -36,7 +37,7 @@ class TestSoundbarOnWithTv:
         assert mock.transmitted_commands[2] == "15:44:40"  # USER_CONTROL_PRESSED (POWER)
         assert mock.transmitted_commands[3] == "15:45"  # USER_CONTROL_RELEASE
 
-        # Processor should be done (terminated via None in command list)
+        # All processors should be done
         assert len(bus._processors) == 0
 
     def test_tv_on_soundbar_already_on_does_nothing(self):
@@ -45,7 +46,7 @@ class TestSoundbarOnWithTv:
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTv())
+        bus.add_processor(SoundbarOnWithTvProcessor(bus))
 
         # TV power status request
         assert mock.transmitted_commands[0] == "10:8F"
@@ -71,7 +72,7 @@ class TestSoundbarOnWithTv:
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTv())
+        bus.add_processor(SoundbarOnWithTvProcessor(bus))
 
         # TV power status request
         assert mock.transmitted_commands[0] == "10:8F"
@@ -91,7 +92,7 @@ class TestSoundbarOnWithTv:
         bus = CECEventBus(mock)
         bus.init()
 
-        bus.add_processor(SoundbarOnWithTv())
+        bus.add_processor(SoundbarOnWithTvProcessor(bus))
 
         # TV power status request sent
         assert mock.transmitted_commands[0] == "10:8F"
@@ -126,8 +127,8 @@ class TestSoundbarOnWithTv:
         assert len(bus._processors) == 0
 
 
-class TestSwitchStatus:
-    """Test SwitchStatus processor"""
+class TestSwitchStatusProcessor:
+    """Test SwitchStatusProcessor"""
 
     def test_switch_initially_off(self):
         """Test that processor correctly handles Switch being initially off"""
@@ -136,7 +137,7 @@ class TestSwitchStatus:
         bus.init()
 
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatus())
+            bus.add_processor(SwitchStatusProcessor(bus))
 
         # Should send initial status request
         assert len(mock.transmitted_commands) == 1
@@ -158,8 +159,14 @@ class TestSwitchStatus:
         bus = CECEventBus(mock)
         bus.init()
 
+        # Mock add_processor to prevent spawning TurnSoundbarOnProcessor
+        original_add_processor = bus.add_processor
+        mock_add_processor = Mock()
+
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatus())
+            bus.add_processor = original_add_processor
+            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor = mock_add_processor
 
         # Should send initial status request
         assert mock.transmitted_commands[0] == "14:8F"
@@ -168,10 +175,13 @@ class TestSwitchStatus:
         with patch('time.time', return_value=1000.5):
             mock.simulate_received_command("41:90:00")  # Switch reports ON
 
-        # Should not send any more commands yet (waiting for poll interval)
+        # Should have called add_processor to spawn TurnSoundbarOnProcessor
+        assert mock_add_processor.call_count == 1
+
+        # Should not send any more commands (TurnSoundbarOnProcessor was mocked)
         assert len(mock.transmitted_commands) == 1
 
-        # Processor should still be active
+        # Only SwitchStatusProcessor should be active
         assert len(bus._processors) == 1
 
     def test_switch_turns_on_via_active_source(self):
@@ -180,8 +190,14 @@ class TestSwitchStatus:
         bus = CECEventBus(mock)
         bus.init()
 
+        # Mock add_processor to prevent spawning TurnSoundbarOnProcessor
+        original_add_processor = bus.add_processor
+        mock_add_processor = Mock()
+
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatus())
+            bus.add_processor = original_add_processor
+            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor = mock_add_processor
 
         # Initial status request
         assert mock.transmitted_commands[0] == "14:8F"
@@ -194,7 +210,10 @@ class TestSwitchStatus:
         with patch('time.time', return_value=1010.0):
             mock.simulate_received_command("4F:82:10:00")  # Switch ACTIVE_SOURCE
 
-        # Should not send any commands (just tracking state)
+        # Should have called add_processor to spawn TurnSoundbarOnProcessor
+        assert mock_add_processor.call_count == 1
+
+        # Should not send any more commands (TurnSoundbarOnProcessor was mocked)
         assert len(mock.transmitted_commands) == 1
 
     def test_switch_turns_off_via_poll_timeout(self):
@@ -203,9 +222,15 @@ class TestSwitchStatus:
         bus = CECEventBus(mock)
         bus.init()
 
+        # Mock add_processor to prevent spawning TurnSoundbarOnProcessor
+        original_add_processor = bus.add_processor
+        mock_add_processor = Mock()
+
         # Start with Switch on
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatus())
+            bus.add_processor = original_add_processor
+            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor = mock_add_processor
 
         # Initial status request
         assert mock.transmitted_commands[0] == "14:8F"
@@ -213,6 +238,9 @@ class TestSwitchStatus:
         # Simulate Switch responding as ON
         with patch('time.time', return_value=1000.5):
             mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Should have spawned TurnSoundbarOnProcessor
+        assert mock_add_processor.call_count == 1
 
         # Advance time to trigger first poll
         with patch('time.time', return_value=1005.5):  # 5 seconds later
@@ -236,13 +264,22 @@ class TestSwitchStatus:
         bus = CECEventBus(mock)
         bus.init()
 
+        # Mock add_processor to prevent spawning TurnSoundbarOnProcessor
+        original_add_processor = bus.add_processor
+        mock_add_processor = Mock()
+
         # Start with Switch on
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatus())
+            bus.add_processor = original_add_processor
+            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor = mock_add_processor
 
         # Simulate Switch responding as ON
         with patch('time.time', return_value=1000.5):
             mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Should have spawned TurnSoundbarOnProcessor
+        assert mock_add_processor.call_count == 1
 
         # Advance time to trigger poll
         with patch('time.time', return_value=1005.5):
@@ -265,13 +302,22 @@ class TestSwitchStatus:
         bus = CECEventBus(mock)
         bus.init()
 
+        # Mock add_processor to prevent spawning TurnSoundbarOnProcessor
+        original_add_processor = bus.add_processor
+        mock_add_processor = Mock()
+
         # Start with Switch on
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatus())
+            bus.add_processor = original_add_processor
+            bus.add_processor(SwitchStatusProcessor(bus))
+            bus.add_processor = mock_add_processor
 
         # Simulate Switch responding as ON
         with patch('time.time', return_value=1000.5):
             mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Should have spawned TurnSoundbarOnProcessor
+        assert mock_add_processor.call_count == 1
 
         # Advance time to trigger first poll (5 second interval)
         with patch('time.time', return_value=1005.5):
@@ -298,7 +344,7 @@ class TestSwitchStatus:
         bus.init()
 
         with patch('time.time', return_value=1000.0):
-            bus.add_processor(SwitchStatus())
+            bus.add_processor(SwitchStatusProcessor(bus))
 
         # Initial request sent
         assert len(mock.transmitted_commands) == 1

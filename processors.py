@@ -7,22 +7,58 @@ from devices import PowerStatus, CECOpcode, UserControlCode
 
 
 @with_timeout(5.0)
-def SoundbarOnWithTv():
+def TurnSoundbarOnProcessor():
+    """
+    Processor that turns on the soundbar if it's off.
+
+    Checks soundbar status and sends power toggle if needed, then terminates.
+    """
+    logger = logging.getLogger('TurnSoundbarOnProcessor')
+
+    SOUNDBAR_ADDRESS = 5
+
+    # Check soundbar status
+    logger.info("Checking soundbar power status")
+    cmd = yield [CECCommand.build(destination=SOUNDBAR_ADDRESS, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
+
+    # Wait for soundbar power status response
+    while cmd.initiator != SOUNDBAR_ADDRESS or cmd.opcode != CECOpcode.REPORT_POWER_STATUS:
+        cmd = yield []
+
+    soundbar_status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
+    logger.info(f"Soundbar status: 0x{soundbar_status:02X} ({'ON' if soundbar_status == PowerStatus.ON else 'STANDBY'})")
+
+    # If soundbar is off, turn it on
+    if soundbar_status == PowerStatus.STANDBY:
+        logger.info("Soundbar is off, sending power toggle")
+        yield [
+            CECCommand.build(destination=SOUNDBAR_ADDRESS, opcode=CECOpcode.USER_CONTROL_PRESSED, parameters=bytes([UserControlCode.POWER])),
+            CECCommand.build(destination=SOUNDBAR_ADDRESS, opcode=CECOpcode.USER_CONTROL_RELEASE),
+            None  # Signal termination
+        ]
+        logger.info("Sent power toggle to soundbar")
+    else:
+        logger.info("Soundbar is already on")
+
+
+@with_timeout(5.0)
+def SoundbarOnWithTvProcessor(eventbus):
     """
     Processor that ensures soundbar is on when TV is on.
 
     Steps:
     1. Check if TV is on
-    2. If TV is on, check if soundbar is on
-    3. If soundbar is off, turn it on
+    2. If TV is on, spawn TurnSoundbarOnProcessor
+
+    Args:
+        eventbus: Reference to CECEventBus for spawning processors
     """
-    logger = logging.getLogger('SoundbarOnWithTv')
+    logger = logging.getLogger('SoundbarOnWithTvProcessor')
 
     # CEC addresses
     TV_ADDRESS = 0
-    SOUNDBAR_ADDRESS = 5
 
-    # Step 1: Check TV power status
+    # Check TV power status
     logger.info("Checking TV power status")
     cmd = yield [CECCommand.build(destination=TV_ADDRESS, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
 
@@ -33,34 +69,15 @@ def SoundbarOnWithTv():
     tv_status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
     logger.info(f"TV status: 0x{tv_status:02X} ({'ON' if tv_status == PowerStatus.ON else 'STANDBY'})")
 
-    # If TV is not on, we're done
-    if tv_status != PowerStatus.ON:
+    # If TV is on, spawn TurnSoundbarOnProcessor
+    if tv_status == PowerStatus.ON:
+        logger.info("TV is on, spawning TurnSoundbarOnProcessor")
+        eventbus.add_processor(TurnSoundbarOnProcessor())
+    else:
         logger.info("TV is off, nothing to do")
-        return
-
-    # Step 2: TV is on, check soundbar status
-    logger.info("TV is on, checking soundbar power status")
-    cmd = yield [CECCommand.build(destination=SOUNDBAR_ADDRESS, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
-
-    # Wait for soundbar power status response
-    while cmd.initiator != SOUNDBAR_ADDRESS or cmd.opcode != CECOpcode.REPORT_POWER_STATUS:
-        cmd = yield []
-
-    soundbar_status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
-    logger.info(f"Soundbar status: 0x{soundbar_status:02X} ({'ON' if soundbar_status == PowerStatus.ON else 'STANDBY'})")
-
-    # Step 3: If soundbar is off, turn it on
-    if soundbar_status == PowerStatus.STANDBY:
-        logger.info("Soundbar is off, sending power toggle")
-        yield [
-            CECCommand.build(destination=SOUNDBAR_ADDRESS, opcode=CECOpcode.USER_CONTROL_PRESSED, parameters=bytes([UserControlCode.POWER])),
-            CECCommand.build(destination=SOUNDBAR_ADDRESS, opcode=CECOpcode.USER_CONTROL_RELEASE),
-            None  # Signal termination
-        ]
-        logger.info("Sent power toggle to soundbar")
 
 
-def SwitchStatus():
+def SwitchStatusProcessor(eventbus):
     """
     Processor that monitors Switch status and switches to Chromecast when Switch turns off.
 
@@ -69,8 +86,11 @@ def SwitchStatus():
     2. While Switch is on: poll every 5 seconds to detect when it turns off
     3. While Switch is off: poll every 60 seconds and watch for ACTIVE_SOURCE to detect when it turns on
     4. When Switch turns off: switch active source to Chromecast
+
+    Args:
+        eventbus: Reference to CECEventBus for spawning processors
     """
-    logger = logging.getLogger('SwitchStatus')
+    logger = logging.getLogger('SwitchStatusProcessor')
 
     # CEC addresses
     SWITCH_ADDRESS = 4
@@ -126,6 +146,9 @@ def SwitchStatus():
                     switch_is_on = True
                     last_poll_time = current_time
                     waiting_for_poll_response = False
+                    # Spawn TurnSoundbarOnProcessor
+                    logger.info("Spawning TurnSoundbarOnProcessor")
+                    eventbus.add_processor(TurnSoundbarOnProcessor())
 
             # Check for power status response
             elif cmd.opcode == CECOpcode.REPORT_POWER_STATUS:
@@ -138,6 +161,9 @@ def SwitchStatus():
                             logger.info("Switch is ON")
                             switch_is_on = True
                             last_poll_time = current_time
+                            # Spawn TurnSoundbarOnProcessor
+                            logger.info("Spawning TurnSoundbarOnProcessor")
+                            eventbus.add_processor(TurnSoundbarOnProcessor())
                     else:
                         # Switch reported non-ON status
                         if switch_is_on:
