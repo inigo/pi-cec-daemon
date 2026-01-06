@@ -36,7 +36,7 @@ def TurnSoundbarOnProcessor(addresses):
     logger = logging.getLogger('TurnSoundbarOnProcessor')
 
     # Check soundbar status
-    logger.info("Checking soundbar power status")
+    logger.debug("Checking soundbar power status")
     cmd = yield [CECCommand.build(destination=addresses.soundbar, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
 
     # Wait for soundbar power status response
@@ -44,7 +44,7 @@ def TurnSoundbarOnProcessor(addresses):
         cmd = yield []
 
     soundbar_status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
-    logger.info(f"Soundbar status: 0x{soundbar_status:02X} ({'ON' if soundbar_status == PowerStatus.ON else 'STANDBY'})")
+    logger.debug(f"Soundbar status: 0x{soundbar_status:02X} ({'ON' if soundbar_status == PowerStatus.ON else 'STANDBY'})")
 
     # If soundbar is off, turn it on
     if soundbar_status == PowerStatus.STANDBY:
@@ -87,7 +87,7 @@ def SoundbarOnWithTvProcessor(eventbus, addresses):
 
     # If TV is on, spawn TurnSoundbarOnProcessor
     if tv_status == PowerStatus.ON:
-        logger.info("TV is on, spawning TurnSoundbarOnProcessor")
+        logger.debug("TV is on, spawning TurnSoundbarOnProcessor")
         eventbus.add_processor(TurnSoundbarOnProcessor(addresses))
     else:
         logger.info("TV is off, nothing to do")
