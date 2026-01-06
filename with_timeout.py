@@ -37,7 +37,7 @@ def with_timeout(seconds: float):
                     if elapsed > seconds:
                         logger.warning(f"Processor '{processor_func.__name__}' timed out after {elapsed:.2f}s")
                         gen.close()
-                        yield None  # Signal termination to event bus
+                        yield [None]  # Signal termination to event bus
                         return
 
                     # Act as proxy: receive event, forward to real processor
