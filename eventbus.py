@@ -46,7 +46,7 @@ class CECEventBus:
         processor_name = processor.__name__
         for existing in self._processors:
             if existing.__name__ == processor_name:
-                self.logger.warning(f"Processor '{processor_name}' already active, not adding duplicate")
+                self.logger.debug(f"Processor '{processor_name}' already active, not adding duplicate")
                 return
 
         try:
