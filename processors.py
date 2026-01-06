@@ -59,6 +59,78 @@ def TurnSoundbarOnProcessor(addresses):
         logger.info("Soundbar is already on")
 
 
+@with_timeout(10.0)
+def SetSoundbarVolumeProcessor(addresses, target_volume: int):
+    """
+    Processor that sets soundbar volume to a specific value.
+
+    Only sets volume if soundbar is on. Terminates after setting volume.
+
+    Args:
+        addresses: Addresses instance containing CEC device addresses
+        target_volume: Target volume in CEC hex value (0-127)
+    """
+    logger = logging.getLogger('SetSoundbarVolumeProcessor')
+
+    VOLUME_STEP = 2  # Each volume up/down command changes volume by 2
+
+    # Check soundbar power status
+    logger.debug("Checking soundbar power status")
+    cmd = yield [CECCommand.build(destination=addresses.soundbar, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
+
+    # Wait for soundbar power status response
+    while cmd.initiator != addresses.soundbar or cmd.opcode != CECOpcode.REPORT_POWER_STATUS:
+        cmd = yield []
+
+    soundbar_status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
+    logger.debug(f"Soundbar status: 0x{soundbar_status:02X}")
+
+    # If soundbar is off, don't set volume
+    if soundbar_status != PowerStatus.ON:
+        logger.info("Soundbar is off, not setting volume")
+        yield [None]
+        return
+
+    # Get current volume
+    logger.debug("Getting current soundbar volume")
+    cmd = yield [CECCommand.build(destination=addresses.soundbar, opcode=CECOpcode.GIVE_AUDIO_STATUS)]
+
+    # Wait for audio status response
+    while cmd.initiator != addresses.soundbar or cmd.opcode != CECOpcode.REPORT_AUDIO_STATUS:
+        cmd = yield []
+
+    # Volume is in the first parameter byte
+    current_volume = cmd.parameters[0] if cmd.parameters else 0
+    logger.debug(f"Current volume: {current_volume} (0x{current_volume:02X})")
+
+    # Check if already at target
+    if current_volume == target_volume:
+        logger.info(f"Volume already at target: {target_volume} (0x{target_volume:02X})")
+        yield [None]
+        return
+
+    # Calculate number of steps needed (ceiling division)
+    diff = target_volume - current_volume
+    steps = (abs(diff) + VOLUME_STEP - 1) // VOLUME_STEP
+
+    # Build volume commands (sent to TV, not soundbar)
+    commands = []
+    if diff > 0:
+        logger.info(f"Increasing volume from {current_volume} to {target_volume} ({steps} steps)")
+        for _ in range(steps):
+            commands.append(CECCommand.build(destination=addresses.tv, opcode=CECOpcode.USER_CONTROL_PRESSED, parameters=bytes([UserControlCode.VOLUME_UP])))
+            commands.append(CECCommand.build(destination=addresses.tv, opcode=CECOpcode.USER_CONTROL_RELEASE))
+    else:
+        logger.info(f"Decreasing volume from {current_volume} to {target_volume} ({steps} steps)")
+        for _ in range(steps):
+            commands.append(CECCommand.build(destination=addresses.tv, opcode=CECOpcode.USER_CONTROL_PRESSED, parameters=bytes([UserControlCode.VOLUME_DOWN])))
+            commands.append(CECCommand.build(destination=addresses.tv, opcode=CECOpcode.USER_CONTROL_RELEASE))
+
+    # Send all volume commands and terminate
+    commands.append(None)
+    yield commands
+
+
 def SoundbarOnWithTvProcessor(eventbus, addresses):
     """
     Processor that monitors TV status and ensures soundbar is on when TV is on.
