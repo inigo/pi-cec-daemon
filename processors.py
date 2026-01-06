@@ -59,14 +59,14 @@ def TurnSoundbarOnProcessor(addresses):
         logger.info("Soundbar is already on")
 
 
-@with_timeout(5.0)
 def SoundbarOnWithTvProcessor(eventbus, addresses):
     """
-    Processor that ensures soundbar is on when TV is on.
+    Processor that monitors TV status and ensures soundbar is on when TV is on.
 
     Steps:
-    1. Check if TV is on
-    2. If TV is on, spawn TurnSoundbarOnProcessor
+    1. Initially check if TV is on
+    2. Poll every 500ms to detect TV state changes
+    3. When TV is ON: spawn TurnSoundbarOnProcessor to ensure soundbar is on
 
     Args:
         eventbus: Reference to CECEventBus for spawning processors
@@ -74,23 +74,68 @@ def SoundbarOnWithTvProcessor(eventbus, addresses):
     """
     logger = logging.getLogger('SoundbarOnWithTvProcessor')
 
-    # Check TV power status
-    logger.debug("Checking TV power status")
+    # Timing constants
+    POLL_INTERVAL = 0.5  # Poll every 500ms
+    POLL_TIMEOUT = 2.0   # Wait 2 seconds for poll response
+
+    # State tracking
+    tv_is_on = False
+    last_poll_time = 0
+    waiting_for_poll_response = False
+    poll_start_time = 0
+
+    # Step 1: Initial status check
+    logger.info("Checking initial TV status")
     cmd = yield [CECCommand.build(destination=addresses.tv, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
+    waiting_for_poll_response = True
+    poll_start_time = time.time()
 
-    # Wait for TV power status response
-    while cmd.initiator != addresses.tv or cmd.opcode != CECOpcode.REPORT_POWER_STATUS:
+    # Main event loop - runs indefinitely
+    while True:
+        current_time = time.time()
+
+        # Check for timeout on poll response
+        if waiting_for_poll_response and (current_time - poll_start_time) >= POLL_TIMEOUT:
+            logger.debug("TV poll timeout - no response")
+            waiting_for_poll_response = False
+            # TV not responding means it's likely off
+            if tv_is_on:
+                logger.info("TV turned off (poll timeout)")
+                tv_is_on = False
+
+        # Process incoming command
+        if cmd.initiator == addresses.tv:
+            # Check for power status response
+            if cmd.opcode == CECOpcode.REPORT_POWER_STATUS:
+                if waiting_for_poll_response:
+                    waiting_for_poll_response = False
+                    last_poll_time = current_time
+                    status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
+
+                    if status == PowerStatus.ON:
+                        if not tv_is_on:
+                            logger.info("TV is ON")
+                            tv_is_on = True
+                        # Spawn TurnSoundbarOnProcessor when TV is on
+                        eventbus.add_processor(TurnSoundbarOnProcessor(addresses))
+                    else:
+                        # TV reported non-ON status
+                        if tv_is_on:
+                            logger.info("TV turned off (status report)")
+                            tv_is_on = False
+
+        # Send periodic poll if not waiting for response
+        if not waiting_for_poll_response:
+            if (current_time - last_poll_time) >= POLL_INTERVAL:
+                logger.debug("Polling TV status")
+                cmd = yield [CECCommand.build(destination=addresses.tv, opcode=CECOpcode.GIVE_DEVICE_POWER_STATUS)]
+                last_poll_time = current_time
+                waiting_for_poll_response = True
+                poll_start_time = current_time
+                continue
+
+        # Wait for next event
         cmd = yield []
-
-    tv_status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
-    logger.debug(f"TV status: 0x{tv_status:02X} ({'ON' if tv_status == PowerStatus.ON else 'STANDBY'})")
-
-    # If TV is on, spawn TurnSoundbarOnProcessor
-    if tv_status == PowerStatus.ON:
-        logger.debug("TV is on, spawning TurnSoundbarOnProcessor")
-        eventbus.add_processor(TurnSoundbarOnProcessor(addresses))
-    else:
-        logger.info("TV is off, nothing to do")
 
 
 def SwitchStatusProcessor(eventbus, addresses):

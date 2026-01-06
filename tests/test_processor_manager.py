@@ -18,7 +18,7 @@ class TestProcessorManager:
         assert manager.comms is mock
 
     def test_start_adds_processors(self):
-        """Test that start() adds SwitchStatusProcessor and begins periodic spawning"""
+        """Test that start() adds both long-running processors"""
         mock = MockCECComms()
         manager = ProcessorManager(mock)
 
@@ -26,38 +26,28 @@ class TestProcessorManager:
         result = manager.start()
         assert result is True
 
-        # Should have added SwitchStatusProcessor
-        assert len(manager.eventbus._processors) >= 1
+        # Should have added both processors
+        assert len(manager.eventbus._processors) == 2
 
-        # Check that at least one processor is SwitchStatusProcessor
-        # (by checking it sent the initial Switch status request)
-        assert len(mock.transmitted_commands) >= 1
+        # Should have sent initial status requests from both processors
+        assert len(mock.transmitted_commands) == 2
         assert mock.transmitted_commands[0] == "14:8F"  # Switch status request
-
-        # Wait a bit for timer to fire
-        time.sleep(0.6)
-
-        # Should have spawned at least one SoundbarOnWithTvProcessor
-        # (by checking it sent TV status request)
-        assert len(mock.transmitted_commands) >= 2
-        assert "10:8F" in mock.transmitted_commands  # TV status request
+        assert mock.transmitted_commands[1] == "10:8F"  # TV status request
 
         # Clean up
         manager.stop()
 
     def test_stop_cleans_up(self):
-        """Test that stop() cancels timer and closes event bus"""
+        """Test that stop() closes event bus"""
         mock = MockCECComms()
         manager = ProcessorManager(mock)
 
         # Start then stop
         manager.start()
-        time.sleep(0.1)  # Let timer start
         manager.stop()
 
-        # Should have cancelled timer
-        assert manager._timer is None or not manager._timer.is_alive()
-        assert manager._running is False
+        # Event bus should be closed (mock CEC should be closed)
+        assert not mock._initialized
 
     def test_start_without_comms_fails_gracefully(self):
         """Test that start() handles init failure gracefully"""
@@ -76,19 +66,14 @@ class TestProcessorManager:
         mock.init = original_init
         manager.stop()
 
-    def test_multiple_soundbar_processors_handled(self):
-        """Test that duplicate SoundbarOnWithTvProcessor names are handled"""
+    def test_processors_remain_active(self):
+        """Test that both processors remain active (long-running)"""
         mock = MockCECComms()
         manager = ProcessorManager(mock)
 
         manager.start()
 
-        # Wait for multiple timer fires
-        time.sleep(1.1)
-
-        # The duplicate name check should prevent too many from being active
-        # We can't be too specific about the count since some may have completed
-        # but we should have at least spawned some
-        assert len(mock.transmitted_commands) > 0
+        # Both processors should be active
+        assert len(manager.eventbus._processors) == 2
 
         manager.stop()
