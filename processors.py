@@ -236,6 +236,7 @@ def SwitchStatusProcessor(eventbus, addresses):
     last_poll_time = 0
     waiting_for_poll_response = False
     poll_start_time = 0
+    consecutive_timeouts = 0  # Track consecutive poll timeouts
 
     # Step 1: Initial status check
     logger.info("Checking initial Switch status")
@@ -253,16 +254,21 @@ def SwitchStatusProcessor(eventbus, addresses):
             waiting_for_poll_response = False
 
             if switch_is_on:
-                # Switch was on but now not responding - it turned off
-                logger.info("Switch turned off (poll timeout)")
-                switch_is_on = False
-                logger.info("Switching active source to Chromecast")
-                cmd = yield [CECCommand.build(
-                    destination=addresses.broadcast,
-                    opcode=CECOpcode.SET_STREAM_PATH,
-                    parameters=addresses.chromecast_physical
-                )]
-                continue
+                consecutive_timeouts += 1
+                logger.debug(f"Consecutive timeouts: {consecutive_timeouts}")
+
+                if consecutive_timeouts >= 3:
+                    # Switch was on but now not responding for 3 consecutive polls - it turned off
+                    logger.info("Switch turned off (3 consecutive poll timeouts)")
+                    switch_is_on = False
+                    consecutive_timeouts = 0  # Reset for next time
+                    logger.info("Switching active source to Chromecast")
+                    cmd = yield [CECCommand.build(
+                        destination=addresses.broadcast,
+                        opcode=CECOpcode.SET_STREAM_PATH,
+                        parameters=addresses.chromecast_physical
+                    )]
+                    continue
 
         # Process incoming command
         if cmd.initiator == addresses.switch:
@@ -273,6 +279,7 @@ def SwitchStatusProcessor(eventbus, addresses):
                     switch_is_on = True
                     last_poll_time = current_time
                     waiting_for_poll_response = False
+                    consecutive_timeouts = 0  # Reset timeout counter
                     # Spawn TurnSoundbarOnProcessor
                     logger.info("Spawning TurnSoundbarOnProcessor")
                     eventbus.add_processor(TurnSoundbarOnProcessor(addresses))
@@ -281,6 +288,7 @@ def SwitchStatusProcessor(eventbus, addresses):
             elif cmd.opcode == CECOpcode.REPORT_POWER_STATUS:
                 if waiting_for_poll_response:
                     waiting_for_poll_response = False
+                    consecutive_timeouts = 0  # Reset timeout counter on any response
                     status = cmd.parameters[0] if cmd.parameters else PowerStatus.STANDBY
 
                     if status == PowerStatus.ON:

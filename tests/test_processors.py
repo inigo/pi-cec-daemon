@@ -303,7 +303,7 @@ class TestSwitchStatusProcessor:
         assert len(mock.transmitted_commands) == 1
 
     def test_switch_turns_off_via_poll_timeout(self, addresses):
-        """Test Switch turning off detected via poll timeout"""
+        """Test Switch turning off detected via 3 consecutive poll timeouts"""
         mock = MockCECComms()
         bus = CECEventBus(mock)
         bus.init()
@@ -328,21 +328,114 @@ class TestSwitchStatusProcessor:
         # Should have spawned TurnSoundbarOnProcessor
         assert mock_add_processor.call_count == 1
 
-        # Advance time to trigger first poll
-        with patch('time.time', return_value=1005.5):  # 5 seconds later
+        # === First poll and timeout ===
+        # Advance time to trigger first poll (5 seconds after Switch turned on)
+        with patch('time.time', return_value=1005.5):
             mock.simulate_received_command("01:90:00")  # Unrelated event to trigger processing
 
-        # Should have sent a poll
         assert len(mock.transmitted_commands) == 2
-        assert mock.transmitted_commands[1] == "14:8F"  # Poll Switch status
+        assert mock.transmitted_commands[1] == "14:8F"  # First poll
 
-        # Simulate poll timeout (no response) - advance past timeout
+        # First timeout (no response) - should NOT trigger Chromecast switch yet
         with patch('time.time', return_value=1008.0):  # 2.5 seconds after poll
             mock.simulate_received_command("01:90:00")  # Unrelated event
 
-        # Should have sent Chromecast switch command
+        # Should NOT have sent Chromecast switch command (only 1 timeout)
+        assert len(mock.transmitted_commands) == 2
+
+        # === Second poll and timeout ===
+        # Advance time to trigger second poll (5 seconds after first poll)
+        with patch('time.time', return_value=1010.5):
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
         assert len(mock.transmitted_commands) == 3
-        assert mock.transmitted_commands[2] == "1F:86:30:00"  # SET_STREAM_PATH to Chromecast
+        assert mock.transmitted_commands[2] == "14:8F"  # Second poll
+
+        # Second timeout - should NOT trigger Chromecast switch yet
+        with patch('time.time', return_value=1013.0):
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
+        # Should NOT have sent Chromecast switch command (only 2 timeouts)
+        assert len(mock.transmitted_commands) == 3
+
+        # === Third poll and timeout ===
+        # Advance time to trigger third poll (5 seconds after second poll)
+        with patch('time.time', return_value=1015.5):
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
+        assert len(mock.transmitted_commands) == 4
+        assert mock.transmitted_commands[3] == "14:8F"  # Third poll
+
+        # Third timeout - NOW should trigger Chromecast switch
+        with patch('time.time', return_value=1018.0):
+            mock.simulate_received_command("01:90:00")  # Unrelated event
+
+        # Should have sent Chromecast switch command (3 consecutive timeouts)
+        assert len(mock.transmitted_commands) == 5
+        assert mock.transmitted_commands[4] == "1F:86:30:00"  # SET_STREAM_PATH to Chromecast
+
+    def test_switch_timeout_counter_resets_on_response(self, addresses):
+        """Test that timeout counter resets when Switch responds"""
+        mock = MockCECComms()
+        bus = CECEventBus(mock)
+        bus.init()
+
+        # Mock add_processor to prevent spawning TurnSoundbarOnProcessor
+        original_add_processor = bus.add_processor
+        mock_add_processor = Mock()
+
+        # Start with Switch on
+        with patch('time.time', return_value=1000.0):
+            bus.add_processor = original_add_processor
+            bus.add_processor(SwitchStatusProcessor(bus, addresses))
+            bus.add_processor = mock_add_processor
+
+        # Simulate Switch responding as ON
+        with patch('time.time', return_value=1000.5):
+            mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # === First poll and timeout ===
+        with patch('time.time', return_value=1005.5):
+            mock.simulate_received_command("01:90:00")  # Trigger poll
+
+        # First timeout
+        with patch('time.time', return_value=1008.0):
+            mock.simulate_received_command("01:90:00")
+
+        # === Second poll and timeout ===
+        with patch('time.time', return_value=1010.5):
+            mock.simulate_received_command("01:90:00")  # Trigger second poll
+
+        # Second timeout
+        with patch('time.time', return_value=1013.0):
+            mock.simulate_received_command("01:90:00")
+
+        # === Third poll - but this time Switch responds! ===
+        with patch('time.time', return_value=1015.5):
+            mock.simulate_received_command("01:90:00")  # Trigger third poll
+
+        # Switch responds - this should reset the timeout counter
+        with patch('time.time', return_value=1016.0):
+            mock.simulate_received_command("41:90:00")  # Switch reports ON
+
+        # Now simulate 2 more timeouts - should NOT trigger Chromecast switch
+        # because the counter was reset
+        with patch('time.time', return_value=1021.0):
+            mock.simulate_received_command("01:90:00")  # Trigger poll
+
+        with patch('time.time', return_value=1024.0):
+            mock.simulate_received_command("01:90:00")  # First timeout after reset
+
+        with patch('time.time', return_value=1026.0):
+            mock.simulate_received_command("01:90:00")  # Trigger another poll
+
+        with patch('time.time', return_value=1029.0):
+            mock.simulate_received_command("01:90:00")  # Second timeout after reset
+
+        # Should NOT have sent Chromecast switch command (only 2 timeouts since reset)
+        # Count the Chromecast commands
+        chromecast_commands = [cmd for cmd in mock.transmitted_commands if cmd == "1F:86:30:00"]
+        assert len(chromecast_commands) == 0
 
     def test_switch_turns_off_via_status_report(self, addresses):
         """Test Switch turning off detected via status report"""
